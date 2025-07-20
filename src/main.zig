@@ -75,9 +75,11 @@ pub const Areion512 = struct {
         var new_block0_bytes: [16]u8 = undefined;
         var new_block1_bytes: [16]u8 = undefined;
 
-        inline for (0..16) |i| {
-            new_block0_bytes[i] = block0_bytes[i] ^ bytes[i];
-            new_block1_bytes[i] = block1_bytes[i] ^ bytes[i + 16];
+        inline for (block0_bytes, new_block0_bytes[0..], bytes[0..16]) |old, *new, input| {
+            new.* = old ^ input;
+        }
+        inline for (block1_bytes, new_block1_bytes[0..], bytes[16..32]) |old, *new, input| {
+            new.* = old ^ input;
         }
 
         self.blocks[0] = AesBlock.fromBytes(&new_block0_bytes);
@@ -104,8 +106,8 @@ pub const Areion512 = struct {
             const original_bytes = original_blocks[i].toBytes();
             const permuted_bytes = self.blocks[i].toBytes();
             var result_bytes: [16]u8 = undefined;
-            for (0..16) |j| {
-                result_bytes[j] = permuted_bytes[j] ^ original_bytes[j];
+            inline for (permuted_bytes, original_bytes, result_bytes[0..]) |perm, orig, *result| {
+                result.* = perm ^ orig;
             }
             self.blocks[i] = AesBlock.fromBytes(&result_bytes);
         }
@@ -349,8 +351,8 @@ pub const Areion256 = struct {
 
         var new_block0_bytes: [16]u8 = undefined;
 
-        for (0..16) |i| {
-            new_block0_bytes[i] = block0_bytes[i] ^ bytes[i];
+        inline for (block0_bytes, new_block0_bytes[0..], bytes) |old, *new, input| {
+            new.* = old ^ input;
         }
 
         self.blocks[0] = AesBlock.fromBytes(&new_block0_bytes);
@@ -373,8 +375,8 @@ pub const Areion256 = struct {
             const original_bytes = original_blocks[i].toBytes();
             const permuted_bytes = self.blocks[i].toBytes();
             var result_bytes: [16]u8 = undefined;
-            for (0..16) |j| {
-                result_bytes[j] = permuted_bytes[j] ^ original_bytes[j];
+            inline for (permuted_bytes, original_bytes, result_bytes[0..]) |perm, orig, *result| {
+                result.* = perm ^ orig;
             }
             self.blocks[i] = AesBlock.fromBytes(&result_bytes);
         }
@@ -392,7 +394,7 @@ pub const Areion256 = struct {
     /// @return 32-byte array representing the complete state
     pub fn toBytes(self: Self) [32]u8 {
         var bytes: [32]u8 = undefined;
-        for (self.blocks, 0..) |b, i| {
+        inline for (self.blocks, 0..) |b, i| {
             @memcpy(bytes[i * 16 ..][0..16], &b.toBytes());
         }
         return bytes;
