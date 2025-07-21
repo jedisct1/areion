@@ -1,14 +1,21 @@
 const std = @import("std");
 const AesBlock = std.crypto.core.aes.Block;
 
+/// Areion512 implements the 512-bit variant of the Areion permutation and hash function.
+/// It uses 4 AES blocks (512 bits total) and is optimized for speed, particularly on small inputs.
+/// The state is divided into rate (blocks 0-1) and capacity (blocks 2-3) portions.
 pub const Areion512 = struct {
     const Self = @This();
 
+    /// Number of bytes absorbed per permutation (rate portion)
     pub const block_length = 32;
+    /// Number of bytes output by the hash function
     pub const digest_length = 32;
+    /// Hash function options (currently unused)
     pub const Options = struct {};
 
-    // blocks[0] and blocks[1] are rate, blocks[2] and blocks[3] are capacity initialized with SHA-256 constants
+    /// Internal state: 4 AES blocks (512 bits total)
+    /// blocks[0] and blocks[1] are rate, blocks[2] and blocks[3] are capacity initialized with SHA-256 constants
     blocks: [4]AesBlock = blocks: {
         const ints = [_]u128{ 0x0, 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a, 0x510e527f9b05688c1f83d9ab5be0cd19 };
         var blocks: [4]AesBlock = undefined;
@@ -253,14 +260,21 @@ pub const Areion512 = struct {
     }
 };
 
+/// Areion256 implements the 256-bit variant of the Areion permutation and hash function.
+/// It uses 2 AES blocks (256 bits total) and is designed for constrained environments.
+/// The state is divided into rate (block 0) and capacity (block 1) portions.
 pub const Areion256 = struct {
     const Self = @This();
 
+    /// Number of bytes absorbed per permutation (rate portion)
     pub const block_length = 16;
+    /// Number of bytes output by the hash function
     pub const digest_length = 16;
+    /// Hash function options (currently unused)
     pub const Options = struct {};
 
-    // blocks[0] is rate, blocks[1] is capacity initialized with SHA-256 constant
+    /// Internal state: 2 AES blocks (256 bits total)
+    /// blocks[0] is rate, blocks[1] is capacity initialized with SHA-256 constant
     blocks: [2]AesBlock = blocks: {
         const ints = [_]u128{ 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a };
         var blocks: [2]AesBlock = undefined;
@@ -521,23 +535,40 @@ const OppState512 = struct {
     }
 };
 
+/// Areion256-OPP implements the Offset Public Permutation mode using Areion256.
+/// This is an authenticated encryption with associated data (AEAD) construction.
+/// It provides confidentiality and authenticity for messages with optional associated data.
 pub const Areion256Opp = struct {
     const Self = @This();
 
+    /// Length of the encryption key in bytes
     pub const key_length = 16;
+    /// Length of the nonce in bytes
     pub const nonce_length = 16;
+    /// Length of the authentication tag in bytes
     pub const tag_length = 16;
+    /// Number of bytes processed per encryption block
     pub const block_length = 32;
 
+    /// State accumulator for associated data
     sa: OppState256,
+    /// State accumulator for message data
     se: OppState256,
+    /// Linear function state for associated data
     la: OppState256,
+    /// Linear function state for message data
     le: OppState256,
+    /// Buffer for partial associated data blocks
     ad_buf: [32]u8,
+    /// Buffer for partial message blocks
     buf: [32]u8,
+    /// Length of partial associated data in buffer
     ad_partial_len: usize,
+    /// Length of partial message data in buffer
     partial_len: usize,
+    /// Mode flag: true for encryption, false for decryption
     is_encrypt: bool,
+    /// Flag indicating if associated data processing is complete
     ad_finalized: bool,
 
     /// Initializes an Areion256-OPP cipher instance for encryption or decryption
@@ -738,22 +769,38 @@ pub const Areion256Opp = struct {
     }
 };
 
+/// Areion512-OPP implements the Offset Public Permutation mode using Areion512.
+/// This is an authenticated encryption with associated data (AEAD) construction.
+/// It provides higher throughput than Areion256-OPP with 64-byte blocks.
 pub const Areion512Opp = struct {
     const Self = @This();
 
+    /// Length of the encryption key in bytes
     pub const key_length = 16;
+    /// Length of the nonce in bytes
     pub const nonce_length = 16;
+    /// Length of the authentication tag in bytes
     pub const tag_length = 16;
+    /// Number of bytes processed per encryption block
     pub const block_length = 64;
 
+    /// State accumulator for associated data
     sa: OppState512,
+    /// State accumulator for message data
     se: OppState512,
+    /// Linear function state for associated data
     la: OppState512,
+    /// Linear function state for message data
     le: OppState512,
+    /// Buffer for partial associated data blocks
     ad_buf: [64]u8,
+    /// Buffer for partial message blocks
     buf: [64]u8,
+    /// Length of partial associated data in buffer
     ad_partial_len: usize,
+    /// Length of partial message data in buffer
     partial_len: usize,
+    /// Flag indicating if associated data processing is complete
     ad_finalized: bool,
 
     /// Initializes an Areion512-OPP cipher instance
