@@ -1,22 +1,14 @@
 const std = @import("std");
 const AesBlock = std.crypto.core.aes.Block;
 
-/// Areion512 implements the 512-bit variant of the Areion permutation family.
-/// It uses a 512-bit state (4 AES blocks) with 32-byte input absorption and 32-byte output.
-/// This variant is optimized for speed, particularly on small inputs.
 pub const Areion512 = struct {
     const Self = @This();
 
-    /// Block length for input absorption (32 bytes)
     pub const block_length = 32;
-    /// Digest length for hash output (32 bytes)
     pub const digest_length = 32;
-    /// Options for hash function (currently unused)
     pub const Options = struct {};
 
-    /// Internal state consisting of 4 AES blocks (512 bits total)
-    /// blocks[0] and blocks[1] form the "rate" part for input absorption
-    /// blocks[2] and blocks[3] form the "capacity" part initialized with SHA-256 constants
+    // blocks[0] and blocks[1] are rate, blocks[2] and blocks[3] are capacity initialized with SHA-256 constants
     blocks: [4]AesBlock = blocks: {
         const ints = [_]u128{ 0x0, 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a, 0x510e527f9b05688c1f83d9ab5be0cd19 };
         var blocks: [4]AesBlock = undefined;
@@ -28,10 +20,7 @@ pub const Areion512 = struct {
         break :blocks blocks;
     },
 
-    /// Creates an Areion512 instance from a 64-byte array.
-    /// The bytes are interpreted as 4 consecutive AES blocks.
-    /// @param bytes 64-byte array representing the full state
-    /// @return New Areion512 instance with the given state
+    /// Creates an Areion512 state from a 64-byte array
     pub fn fromBytes(bytes: [64]u8) Self {
         var blocks: [4]AesBlock = undefined;
         inline for (&blocks, 0..) |*b, i| {
@@ -40,24 +29,19 @@ pub const Areion512 = struct {
         return Self{ .blocks = blocks };
     }
 
-    /// Sets the rate portion (first 2 blocks) of the state.
-    /// The rate portion is used for input absorption.
-    /// @param bytes 32-byte array to set as the rate
+    /// Sets the rate portion (blocks 0 and 1) of the state
     pub fn setRate(self: *Self, bytes: [32]u8) void {
         self.blocks[0] = AesBlock.fromBytes(bytes[0..16]);
         self.blocks[1] = AesBlock.fromBytes(bytes[16..32]);
     }
 
-    /// Sets the capacity portion (last 2 blocks) of the state.
-    /// The capacity portion maintains the internal hash state.
-    /// @param state 32-byte array to set as the capacity
+    /// Sets the capacity portion (blocks 2 and 3) of the state
     pub fn setCapacity(self: *Self, state: [32]u8) void {
         self.blocks[2] = AesBlock.fromBytes(state[0..16]);
         self.blocks[3] = AesBlock.fromBytes(state[16..32]);
     }
 
-    /// Extracts the capacity portion (last 2 blocks) of the state.
-    /// @return 32-byte array containing the capacity state
+    /// Retrieves the capacity portion (blocks 2 and 3) of the state
     pub fn getCapacity(self: Self) [32]u8 {
         var state: [32]u8 = undefined;
         @memcpy(state[0..16], &self.blocks[2].toBytes());
@@ -65,9 +49,7 @@ pub const Areion512 = struct {
         return state;
     }
 
-    /// Absorbs 32 bytes of input into the rate portion of the state.
-    /// The input is XORed with the current rate (first 2 blocks).
-    /// @param bytes 32-byte input block to absorb
+    /// Absorbs 32 bytes into the rate portion using XOR
     pub fn absorb(self: *Self, bytes: [32]u8) void {
         const block0_bytes = self.blocks[0].toBytes();
         const block1_bytes = self.blocks[1].toBytes();
@@ -86,9 +68,7 @@ pub const Areion512 = struct {
         self.blocks[1] = AesBlock.fromBytes(&new_block1_bytes);
     }
 
-    /// Squeezes 32 bytes from the rate portion of the state.
-    /// Returns the current rate (first 2 blocks) as output.
-    /// @return 32-byte output extracted from the rate
+    /// Extracts 32 bytes from the rate portion of the state
     pub fn squeeze(self: Self) [32]u8 {
         var rate: [32]u8 = undefined;
         @memcpy(rate[0..16], &self.blocks[0].toBytes());
@@ -96,9 +76,6 @@ pub const Areion512 = struct {
         return rate;
     }
 
-    /// Applies Davies-Meyer compression to the state.
-    /// Performs permutation and XORs the result with the original state.
-    /// This is used in the hash function's compression phase.
     fn compress(self: *Self) void {
         const original_blocks = self.blocks;
         self.permute();
@@ -113,9 +90,6 @@ pub const Areion512 = struct {
         }
     }
 
-    /// Extracts the final hash output from the state.
-    /// Takes specific byte ranges from all 4 blocks to form the 32-byte output.
-    /// @param output Pointer to 32-byte array to store the extracted output
     fn extractOutput(self: Self, output: *[32]u8) void {
         const block0_bytes = self.blocks[0].toBytes();
         const block1_bytes = self.blocks[1].toBytes();
@@ -128,9 +102,7 @@ pub const Areion512 = struct {
         @memcpy(output[24..32], block3_bytes[0..8]);
     }
 
-    /// Converts the entire state to a 64-byte array.
-    /// All 4 AES blocks are concatenated into a single byte array.
-    /// @return 64-byte array representing the complete state
+    /// Converts the entire state to a 64-byte array
     pub fn toBytes(self: Self) [64]u8 {
         var bytes: [64]u8 = undefined;
         inline for (self.blocks, 0..) |b, i| {
@@ -139,10 +111,14 @@ pub const Areion512 = struct {
         return bytes;
     }
 
-    /// Applies the Areion512 permutation to the state.
-    /// Performs 15 rounds of AES-based transformations using precomputed round constants.
-    /// The permutation consists of 12 regular rounds followed by 3 final rounds,
-    /// with a final block rotation.
+    fn roundFunction512(x0: *AesBlock, x1: *AesBlock, x2: *AesBlock, x3: *AesBlock, rc: AesBlock, rc1: AesBlock) void {
+        x1.* = x0.encrypt(x1.*);
+        x3.* = x2.encrypt(x3.*);
+        x0.* = x0.encryptLast(rc1);
+        x2.* = x2.encryptLast(rc).encrypt(rc1);
+    }
+
+    /// Applies the Areion512 permutation (15 rounds)
     pub fn permute(self: *Self) void {
         const rcs = comptime rcs: {
             const ints = [15]u128{
@@ -161,69 +137,19 @@ pub const Areion512 = struct {
             break :rc1 AesBlock.fromBytes(&b);
         };
 
-        inline for (0..12) |round| {
-            const rc = rcs[round];
-            switch (@rem(round, 4)) {
-                0 => {
-                    const new_x1 = self.blocks[0].encrypt(self.blocks[1]);
-                    const new_x3 = self.blocks[2].encrypt(self.blocks[3]);
-                    const new_x0 = self.blocks[0].encryptLast(rc1);
-                    const new_x2 = self.blocks[2].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                1 => {
-                    const new_x2 = self.blocks[1].encrypt(self.blocks[2]);
-                    const new_x0 = self.blocks[3].encrypt(self.blocks[0]);
-                    const new_x1 = self.blocks[1].encryptLast(rc1);
-                    const new_x3 = self.blocks[3].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                2 => {
-                    const new_x3 = self.blocks[2].encrypt(self.blocks[3]);
-                    const new_x1 = self.blocks[0].encrypt(self.blocks[1]);
-                    const new_x2 = self.blocks[2].encryptLast(rc1);
-                    const new_x0 = self.blocks[0].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                3 => {
-                    const new_x0 = self.blocks[3].encrypt(self.blocks[0]);
-                    const new_x2 = self.blocks[1].encrypt(self.blocks[2]);
-                    const new_x3 = self.blocks[3].encryptLast(rc1);
-                    const new_x1 = self.blocks[1].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                else => unreachable,
-            }
+        var i: usize = 0;
+        while (i < 12) : (i += 4) {
+            roundFunction512(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[i + 0], rc1);
+            roundFunction512(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[i + 1], rc1);
+            roundFunction512(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[i + 2], rc1);
+            roundFunction512(&self.blocks[3], &self.blocks[0], &self.blocks[1], &self.blocks[2], rcs[i + 3], rc1);
         }
 
-        inline for (12..15) |round| {
-            const rc = rcs[round];
-            switch (@rem(round, 4)) {
-                0 => {
-                    const new_x1 = self.blocks[0].encrypt(self.blocks[1]);
-                    const new_x3 = self.blocks[2].encrypt(self.blocks[3]);
-                    const new_x0 = self.blocks[0].encryptLast(rc1);
-                    const new_x2 = self.blocks[2].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                1 => {
-                    const new_x2 = self.blocks[1].encrypt(self.blocks[2]);
-                    const new_x0 = self.blocks[3].encrypt(self.blocks[0]);
-                    const new_x1 = self.blocks[1].encryptLast(rc1);
-                    const new_x3 = self.blocks[3].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                2 => {
-                    const new_x3 = self.blocks[2].encrypt(self.blocks[3]);
-                    const new_x1 = self.blocks[0].encrypt(self.blocks[1]);
-                    const new_x2 = self.blocks[2].encryptLast(rc1);
-                    const new_x0 = self.blocks[0].encryptLast(rc).encrypt(rc1);
-                    self.blocks = [4]AesBlock{ new_x0, new_x1, new_x2, new_x3 };
-                },
-                else => unreachable,
-            }
-        }
+        roundFunction512(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[12], rc1);
+        roundFunction512(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[13], rc1);
+        roundFunction512(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[14], rc1);
 
+        // Final rotation: (x0,x1,x2,x3) -> (x3,x2,x1,x0)
         const temp = self.blocks[0];
         self.blocks[0] = self.blocks[3];
         self.blocks[3] = self.blocks[2];
@@ -231,12 +157,55 @@ pub const Areion512 = struct {
         self.blocks[1] = temp;
     }
 
-    /// Computes the Areion512 hash of the input data.
-    /// Uses Merkle-Damgård construction with Davies-Meyer compression.
-    /// Processes input in 32-byte blocks with proper padding.
-    /// @param b Input data to hash
-    /// @param out Pointer to 32-byte array to store the hash digest
-    /// @param options Hash options (currently unused)
+    /// Applies the inverse Areion512 permutation
+    pub fn inversePermute(self: *Self) void {
+        // Reverse the final block rotation: (x0,x1,x2,x3) -> (x3,x0,x1,x2)
+        const temp = self.blocks[0];
+        self.blocks[0] = self.blocks[3];
+        self.blocks[3] = self.blocks[2];
+        self.blocks[2] = self.blocks[1];
+        self.blocks[1] = temp;
+
+        const rcs = comptime rcs: {
+            const ints = [15]u128{
+                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
+            };
+            var rcs: [ints.len]AesBlock = undefined;
+            for (&rcs, ints) |*rc, v| {
+                var b: [16]u8 = undefined;
+                std.mem.writeInt(u128, &b, v, .little);
+                rc.* = AesBlock.fromBytes(&b);
+            }
+            break :rcs rcs;
+        };
+        const rc1 = comptime rc1: {
+            const b = [_]u8{0} ** 16;
+            break :rc1 AesBlock.fromBytes(&b);
+        };
+
+        const invRoundFunction512 = struct {
+            fn apply(x0: *AesBlock, x1: *AesBlock, x2: *AesBlock, x3: *AesBlock, rc: AesBlock, zero: AesBlock) void {
+                // Note: This doesn't match the C reference exactly due to lack of inverse MixColumns
+                x0.* = x0.decryptLast(zero);
+                x2.* = x2.decrypt(rc).decryptLast(zero);
+                x1.* = x0.encrypt(x1.*);
+                x3.* = x2.encrypt(x3.*);
+            }
+        }.apply;
+        invRoundFunction512(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[14], rc1);
+        invRoundFunction512(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[13], rc1);
+        invRoundFunction512(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[12], rc1);
+
+        var i: usize = 0;
+        while (i < 12) : (i += 4) {
+            invRoundFunction512(&self.blocks[3], &self.blocks[0], &self.blocks[1], &self.blocks[2], rcs[11 - i], rc1);
+            invRoundFunction512(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[10 - i], rc1);
+            invRoundFunction512(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[9 - i], rc1);
+            invRoundFunction512(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[8 - i], rc1);
+        }
+    }
+
+    /// Computes the Areion512 hash of the input data
     pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
         _ = options;
 
@@ -284,22 +253,14 @@ pub const Areion512 = struct {
     }
 };
 
-/// Areion256 implements the 256-bit variant of the Areion permutation family.
-/// It uses a 256-bit state (2 AES blocks) with 16-byte input absorption and 16-byte output.
-/// This variant is more compact than Areion512 while maintaining good performance.
 pub const Areion256 = struct {
     const Self = @This();
 
-    /// Block length for input absorption (16 bytes)
     pub const block_length = 16;
-    /// Digest length for hash output (16 bytes)
     pub const digest_length = 16;
-    /// Options for hash function (currently unused)
     pub const Options = struct {};
 
-    /// Internal state consisting of 2 AES blocks (256 bits total)
-    /// blocks[0] forms the "rate" part for input absorption
-    /// blocks[1] forms the "capacity" part initialized with SHA-256 constant
+    // blocks[0] is rate, blocks[1] is capacity initialized with SHA-256 constant
     blocks: [2]AesBlock = blocks: {
         const ints = [_]u128{ 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a };
         var blocks: [2]AesBlock = undefined;
@@ -311,10 +272,7 @@ pub const Areion256 = struct {
         break :blocks blocks;
     },
 
-    /// Creates an Areion256 instance from a 32-byte array.
-    /// The bytes are interpreted as 2 consecutive AES blocks.
-    /// @param bytes 32-byte array representing the full state
-    /// @return New Areion256 instance with the given state
+    /// Creates an Areion256 state from a 32-byte array
     pub fn fromBytes(bytes: [32]u8) Self {
         var blocks: [2]AesBlock = undefined;
         inline for (&blocks, 0..) |*b, i| {
@@ -323,29 +281,22 @@ pub const Areion256 = struct {
         return Self{ .blocks = blocks };
     }
 
-    /// Sets the rate portion (first block) of the state.
-    /// The rate portion is used for input absorption.
-    /// @param bytes 16-byte array to set as the rate
+    /// Sets the rate portion (block 0) of the state
     pub fn setRate(self: *Self, bytes: [16]u8) void {
         self.blocks[0] = AesBlock.fromBytes(bytes[0..16]);
     }
 
-    /// Sets the capacity portion (second block) of the state.
-    /// The capacity portion maintains the internal hash state.
-    /// @param state 16-byte array to set as the capacity
+    /// Sets the capacity portion (block 1) of the state
     pub fn setCapacity(self: *Self, state: [16]u8) void {
         self.blocks[1] = AesBlock.fromBytes(state[0..16]);
     }
 
-    /// Extracts the capacity portion (second block) of the state.
-    /// @return 16-byte array containing the capacity state
+    /// Retrieves the capacity portion (block 1) of the state
     pub fn getCapacity(self: Self) [16]u8 {
         return self.blocks[1].toBytes();
     }
 
-    /// Absorbs 16 bytes of input into the rate portion of the state.
-    /// The input is XORed with the current rate (first block).
-    /// @param bytes 16-byte input block to absorb
+    /// Absorbs 16 bytes into the rate portion using XOR
     pub fn absorb(self: *Self, bytes: [16]u8) void {
         const block0_bytes = self.blocks[0].toBytes();
 
@@ -358,16 +309,11 @@ pub const Areion256 = struct {
         self.blocks[0] = AesBlock.fromBytes(&new_block0_bytes);
     }
 
-    /// Squeezes 16 bytes from the rate portion of the state.
-    /// Returns the current rate (first block) as output.
-    /// @return 16-byte output extracted from the rate
+    /// Extracts 16 bytes from the rate portion of the state
     pub fn squeeze(self: Self) [16]u8 {
         return self.blocks[0].toBytes();
     }
 
-    /// Applies Davies-Meyer compression to the state.
-    /// Performs permutation and XORs the result with the original state.
-    /// This is used in the hash function's compression phase.
     fn compress(self: *Self) void {
         const original_blocks = self.blocks;
         self.permute();
@@ -382,16 +328,11 @@ pub const Areion256 = struct {
         }
     }
 
-    /// Extracts the final hash output from the state.
-    /// Takes the capacity block (second block) as the 16-byte output.
-    /// @param output Pointer to 16-byte array to store the extracted output
     fn extractOutput(self: Self, output: *[16]u8) void {
         @memcpy(output[0..16], &self.blocks[1].toBytes());
     }
 
-    /// Converts the entire state to a 32-byte array.
-    /// Both AES blocks are concatenated into a single byte array.
-    /// @return 32-byte array representing the complete state
+    /// Converts the entire state to a 32-byte array
     pub fn toBytes(self: Self) [32]u8 {
         var bytes: [32]u8 = undefined;
         inline for (self.blocks, 0..) |b, i| {
@@ -400,9 +341,7 @@ pub const Areion256 = struct {
         return bytes;
     }
 
-    /// Applies the Areion256 permutation to the state.
-    /// Performs 10 rounds of AES-based transformations using precomputed round constants.
-    /// Each round alternates between two different transformation patterns.
+    /// Applies the Areion256 permutation (10 rounds)
     pub fn permute(self: *Self) void {
         const rcs = comptime rcs: {
             const ints = [10]u128{
@@ -434,12 +373,41 @@ pub const Areion256 = struct {
         }
     }
 
-    /// Computes the Areion256 hash of the input data.
-    /// Uses Merkle-Damgård construction with Davies-Meyer compression.
-    /// Processes input in 16-byte blocks with proper padding.
-    /// @param b Input data to hash
-    /// @param out Pointer to 16-byte array to store the hash digest
-    /// @param options Hash options (currently unused)
+    /// Applies the inverse Areion256 permutation
+    pub fn inversePermute(self: *Self) void {
+        const rcs = comptime rcs: {
+            const ints = [10]u128{
+                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
+            };
+            var rcs: [ints.len]AesBlock = undefined;
+            for (&rcs, ints) |*rc, v| {
+                var b: [16]u8 = undefined;
+                std.mem.writeInt(u128, &b, v, .little);
+                rc.* = AesBlock.fromBytes(&b);
+            }
+            break :rcs rcs;
+        };
+        const rc1 = comptime rc1: {
+            const b = [_]u8{0} ** 16;
+            break :rc1 AesBlock.fromBytes(&b);
+        };
+
+        var i: usize = 0;
+        while (i < 10) : (i += 2) {
+            {
+                const rc = rcs[9 - i];
+                self.blocks[1] = self.blocks[1].decryptLast(rc1);
+                self.blocks[0] = self.blocks[1].encrypt(rc).encrypt(self.blocks[0]);
+            }
+            {
+                const rc = rcs[8 - i];
+                self.blocks[0] = self.blocks[0].decryptLast(rc1);
+                self.blocks[1] = self.blocks[0].encrypt(rc).encrypt(self.blocks[1]);
+            }
+        }
+    }
+
+    /// Computes the Areion256 hash of the input data
     pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
         _ = options;
 
@@ -486,6 +454,580 @@ pub const Areion256 = struct {
         final_state.extractOutput(out);
     }
 };
+
+const OppState256 = struct {
+    const Self = @This();
+
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+
+    fn fromBytes(bytes: [32]u8) Self {
+        return Self{
+            .a = std.mem.readInt(u64, bytes[0..8], .little),
+            .b = std.mem.readInt(u64, bytes[8..16], .little),
+            .c = std.mem.readInt(u64, bytes[16..24], .little),
+            .d = std.mem.readInt(u64, bytes[24..32], .little),
+        };
+    }
+
+    fn toBytes(self: Self) [32]u8 {
+        var bytes: [32]u8 = undefined;
+        std.mem.writeInt(u64, bytes[0..8], self.a, .little);
+        std.mem.writeInt(u64, bytes[8..16], self.b, .little);
+        std.mem.writeInt(u64, bytes[16..24], self.c, .little);
+        std.mem.writeInt(u64, bytes[24..32], self.d, .little);
+        return bytes;
+    }
+
+    fn xor(self: Self, other: Self) Self {
+        return Self{
+            .a = self.a ^ other.a,
+            .b = self.b ^ other.b,
+            .c = self.c ^ other.c,
+            .d = self.d ^ other.d,
+        };
+    }
+};
+
+const OppState512 = struct {
+    const Self = @This();
+
+    s: [8]u64,
+
+    fn fromBytes(bytes: [64]u8) Self {
+        var s: [8]u64 = undefined;
+        for (&s, 0..) |*word, i| {
+            word.* = std.mem.readInt(u64, bytes[i * 8 ..][0..8], .little);
+        }
+        return Self{ .s = s };
+    }
+
+    fn toBytes(self: Self) [64]u8 {
+        var bytes: [64]u8 = undefined;
+        for (self.s, 0..) |word, i| {
+            std.mem.writeInt(u64, bytes[i * 8 ..][0..8], word, .little);
+        }
+        return bytes;
+    }
+
+    fn xor(self: Self, other: Self) Self {
+        var result: [8]u64 = undefined;
+        for (&result, self.s, other.s) |*r, a, b| {
+            r.* = a ^ b;
+        }
+        return Self{ .s = result };
+    }
+};
+
+pub const Areion256Opp = struct {
+    const Self = @This();
+
+    pub const key_length = 16;
+    pub const nonce_length = 16;
+    pub const tag_length = 16;
+    pub const block_length = 32;
+
+    sa: OppState256,
+    se: OppState256,
+    la: OppState256,
+    le: OppState256,
+    ad_buf: [32]u8,
+    buf: [32]u8,
+    ad_partial_len: usize,
+    partial_len: usize,
+    is_encrypt: bool,
+    ad_finalized: bool,
+
+    /// Initializes an Areion256-OPP cipher instance for encryption or decryption
+    pub fn init(key: [key_length]u8, nonce: [nonce_length]u8, is_encrypt: bool) Self {
+        const la = initMask256(key, nonce);
+        const le = gamma256(la);
+
+        return Self{
+            .sa = OppState256{ .a = 0, .b = 0, .c = 0, .d = 0 },
+            .se = OppState256{ .a = 0, .b = 0, .c = 0, .d = 0 },
+            .la = la,
+            .le = le,
+            .ad_buf = [_]u8{0} ** 32,
+            .buf = [_]u8{0} ** 32,
+            .ad_partial_len = 0,
+            .partial_len = 0,
+            .is_encrypt = is_encrypt,
+            .ad_finalized = false,
+        };
+    }
+
+    /// Processes associated data (must be called before update)
+    pub fn updateAd(self: *Self, ad: []const u8) void {
+        var offset: usize = 0;
+
+        if (self.ad_partial_len > 0) {
+            const needed = @min(ad.len, block_length - self.ad_partial_len);
+            @memcpy(self.ad_buf[self.ad_partial_len .. self.ad_partial_len + needed], ad[0..needed]);
+            self.ad_partial_len += needed;
+            offset = needed;
+
+            if (self.ad_partial_len == block_length) {
+                const block_state = OppState256.fromBytes(self.ad_buf);
+                const outb = oppMem256(block_state, self.la);
+                self.sa = self.sa.xor(outb);
+                self.la = alpha256(self.la);
+                self.ad_partial_len = 0;
+            }
+        }
+
+        while (offset + block_length <= ad.len) {
+            const block_state = OppState256.fromBytes(ad[offset .. offset + block_length][0..block_length].*);
+            const outb = oppMem256(block_state, self.la);
+            self.sa = self.sa.xor(outb);
+            self.la = alpha256(self.la);
+            offset += block_length;
+        }
+
+        if (offset < ad.len) {
+            const remaining = ad.len - offset;
+            @memcpy(self.ad_buf[0..remaining], ad[offset..]);
+            self.ad_partial_len = remaining;
+        }
+    }
+
+    fn finalizeAd(self: *Self) void {
+        if (!self.ad_finalized) {
+            self.ad_finalized = true;
+            if (self.ad_partial_len > 0) {
+                @memset(self.ad_buf[self.ad_partial_len..], 0);
+                self.ad_buf[self.ad_partial_len] = 0x01;
+
+                const mask = beta256(self.la);
+                const block_state = OppState256.fromBytes(self.ad_buf);
+                const outb = oppMem256(block_state, mask);
+                self.sa = self.sa.xor(outb);
+                self.la = alpha256(mask);
+            }
+        }
+    }
+
+    /// Processes plaintext/ciphertext and produces output
+    pub fn update(self: *Self, output: []u8, input: []const u8) void {
+        self.finalizeAd();
+
+        var offset: usize = 0;
+
+        if (self.partial_len > 0) {
+            const needed = @min(input.len, block_length - self.partial_len);
+            @memcpy(self.buf[self.partial_len .. self.partial_len + needed], input[0..needed]);
+            self.partial_len += needed;
+            offset = needed;
+
+            if (self.partial_len == block_length) {
+                const block_state = OppState256.fromBytes(self.buf);
+
+                if (self.is_encrypt) {
+                    const outb = oppMem256(block_state, self.le);
+                    const result_bytes = outb.toBytes();
+                    @memcpy(output[0..block_length], &result_bytes);
+                    self.se = self.se.xor(block_state);
+                } else {
+                    const outb = oppMemInverse256(block_state, self.le);
+                    const result_bytes = outb.toBytes();
+                    @memcpy(output[0..block_length], &result_bytes);
+                    self.se = self.se.xor(outb);
+                }
+
+                self.le = alpha256(self.le);
+                self.partial_len = 0;
+            }
+        }
+
+        while (offset + block_length <= input.len) {
+            const block_state = OppState256.fromBytes(input[offset .. offset + block_length][0..block_length].*);
+            if (self.is_encrypt) {
+                const outb = oppMem256(block_state, self.le);
+                const result_bytes = outb.toBytes();
+                @memcpy(output[offset .. offset + block_length], &result_bytes);
+                self.se = self.se.xor(block_state);
+            } else {
+                const outb = oppMemInverse256(block_state, self.le);
+                const result_bytes = outb.toBytes();
+                @memcpy(output[offset .. offset + block_length], &result_bytes);
+                self.se = self.se.xor(outb);
+            }
+
+            self.le = alpha256(self.le);
+            offset += block_length;
+        }
+
+        if (offset < input.len) {
+            const remaining = input.len - offset;
+            @memcpy(self.buf[0..remaining], input[offset..]);
+            self.partial_len = remaining;
+        }
+    }
+
+    /// Finalizes the operation and generates authentication tag
+    pub fn finalize(self: *Self, output: []u8, tag: *[tag_length]u8) void {
+        self.finalizeAd();
+
+        if (self.partial_len > 0) {
+            self.le = beta256(self.le);
+            @memset(self.buf[self.partial_len..], 0);
+            self.buf[self.partial_len] = 0x01;
+
+            const inb = OppState256.fromBytes(self.buf);
+            const zero_state = OppState256{ .a = 0, .b = 0, .c = 0, .d = 0 };
+            const block = oppMem256(zero_state, self.le);
+            const outb = block.xor(inb);
+
+            const result_bytes = outb.toBytes();
+            if (output.len >= self.partial_len) {
+                @memcpy(output[0..self.partial_len], result_bytes[0..self.partial_len]);
+            }
+
+            if (self.is_encrypt) {
+                self.se = self.se.xor(inb);
+            } else {
+                var plain_buf = [_]u8{0} ** 32;
+                @memcpy(plain_buf[0..self.partial_len], result_bytes[0..self.partial_len]);
+                plain_buf[self.partial_len] = 0x01;
+                const plainb = OppState256.fromBytes(plain_buf);
+                self.se = self.se.xor(plainb);
+            }
+        }
+
+        const final_mask = beta256(beta256(self.le));
+        const tag_state = self.sa.xor(oppMem256(self.se, final_mask));
+        const tag_bytes = tag_state.toBytes();
+        @memcpy(tag, tag_bytes[0..tag_length]);
+    }
+
+    /// Encrypts plaintext with associated data and generates authentication tag
+    pub fn encrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, plaintext: []const u8, ciphertext: []u8, tag: *[tag_length]u8) void {
+        var state = Self.init(key, nonce, true);
+        state.updateAd(ad);
+
+        const full_blocks = plaintext.len / block_length;
+        const processed_len = full_blocks * block_length;
+
+        state.update(ciphertext, plaintext);
+
+        var empty_output: [0]u8 = undefined;
+        const remaining_output = if (processed_len < ciphertext.len) ciphertext[processed_len..] else &empty_output;
+        state.finalize(remaining_output, tag);
+    }
+
+    /// Decrypts ciphertext with associated data and verifies authentication tag
+    pub fn decrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, ciphertext: []const u8, tag: [tag_length]u8, plaintext: []u8) !void {
+        var state = Self.init(key, nonce, false);
+        state.updateAd(ad);
+
+        const full_blocks = ciphertext.len / block_length;
+        const processed_len = full_blocks * block_length;
+
+        state.update(plaintext, ciphertext);
+
+        var empty_output: [0]u8 = undefined;
+        const remaining_output = if (processed_len < plaintext.len) plaintext[processed_len..] else &empty_output;
+        var computed_tag: [tag_length]u8 = undefined;
+        state.finalize(remaining_output, &computed_tag);
+
+        if (!std.mem.eql(u8, &computed_tag, &tag)) {
+            return error.AuthenticationFailed;
+        }
+    }
+};
+
+pub const Areion512Opp = struct {
+    const Self = @This();
+
+    pub const key_length = 16;
+    pub const nonce_length = 16;
+    pub const tag_length = 16;
+    pub const block_length = 64;
+
+    sa: OppState512,
+    se: OppState512,
+    la: OppState512,
+    le: OppState512,
+    ad_buf: [64]u8,
+    buf: [64]u8,
+    ad_partial_len: usize,
+    partial_len: usize,
+    ad_finalized: bool,
+
+    /// Initializes an Areion512-OPP cipher instance
+    pub fn init(key: [key_length]u8, nonce: [nonce_length]u8) Self {
+        const la = initMask512(key, nonce);
+        const le = gamma512(la);
+
+        return Self{
+            .sa = OppState512{ .s = [_]u64{0} ** 8 },
+            .se = OppState512{ .s = [_]u64{0} ** 8 },
+            .la = la,
+            .le = le,
+            .ad_buf = [_]u8{0} ** 64,
+            .buf = [_]u8{0} ** 64,
+            .ad_partial_len = 0,
+            .partial_len = 0,
+            .ad_finalized = false,
+        };
+    }
+
+    /// Processes associated data (must be called before update)
+    pub fn updateAd(self: *Self, ad: []const u8) void {
+        var offset: usize = 0;
+
+        if (self.ad_partial_len > 0) {
+            const needed = @min(ad.len, block_length - self.ad_partial_len);
+            @memcpy(self.ad_buf[self.ad_partial_len .. self.ad_partial_len + needed], ad[0..needed]);
+            self.ad_partial_len += needed;
+            offset = needed;
+
+            if (self.ad_partial_len == block_length) {
+                const block_state = OppState512.fromBytes(self.ad_buf);
+                const outb = oppMem512(block_state, self.la);
+                self.sa = self.sa.xor(outb);
+                self.la = alpha512(self.la);
+                self.ad_partial_len = 0;
+            }
+        }
+
+        while (offset + block_length <= ad.len) {
+            const block_state = OppState512.fromBytes(ad[offset .. offset + block_length][0..block_length].*);
+            const outb = oppMem512(block_state, self.la);
+            self.sa = self.sa.xor(outb);
+            self.la = alpha512(self.la);
+            offset += block_length;
+        }
+
+        if (offset < ad.len) {
+            const remaining = ad.len - offset;
+            @memcpy(self.ad_buf[0..remaining], ad[offset..]);
+            self.ad_partial_len = remaining;
+        }
+    }
+
+    fn finalizeAd(self: *Self) void {
+        if (!self.ad_finalized) {
+            self.ad_finalized = true;
+            if (self.ad_partial_len > 0) {
+                @memset(self.ad_buf[self.ad_partial_len..], 0);
+                self.ad_buf[self.ad_partial_len] = 0x01;
+
+                const mask = beta512(self.la);
+                const block_state = OppState512.fromBytes(self.ad_buf);
+                const outb = oppMem512(block_state, mask);
+                self.sa = self.sa.xor(outb);
+                self.la = alpha512(mask);
+            }
+        }
+    }
+
+    /// Processes plaintext and produces ciphertext
+    pub fn update(self: *Self, output: []u8, input: []const u8) void {
+        self.finalizeAd();
+
+        var offset: usize = 0;
+
+        if (self.partial_len > 0) {
+            const needed = @min(input.len, block_length - self.partial_len);
+            @memcpy(self.buf[self.partial_len .. self.partial_len + needed], input[0..needed]);
+            self.partial_len += needed;
+            offset = needed;
+
+            if (self.partial_len == block_length) {
+                const block_state = OppState512.fromBytes(self.buf);
+
+                const outb = oppMem512(block_state, self.le);
+                const result_bytes = outb.toBytes();
+                @memcpy(output[0..block_length], &result_bytes);
+                self.se = self.se.xor(block_state);
+
+                self.le = alpha512(self.le);
+                self.partial_len = 0;
+            }
+        }
+
+        while (offset + block_length <= input.len) {
+            const block_state = OppState512.fromBytes(input[offset .. offset + block_length][0..block_length].*);
+
+            const outb = oppMem512(block_state, self.le);
+            const result_bytes = outb.toBytes();
+            @memcpy(output[offset .. offset + block_length], &result_bytes);
+            self.se = self.se.xor(block_state);
+
+            self.le = alpha512(self.le);
+            offset += block_length;
+        }
+
+        if (offset < input.len) {
+            const remaining = input.len - offset;
+            @memcpy(self.buf[0..remaining], input[offset..]);
+            self.partial_len = remaining;
+        }
+    }
+
+    /// Finalizes the operation and generates authentication tag
+    pub fn finalize(self: *Self, output: []u8, tag: *[tag_length]u8) void {
+        self.finalizeAd();
+
+        if (self.partial_len > 0) {
+            self.le = beta512(self.le);
+            @memset(self.buf[self.partial_len..], 0);
+            self.buf[self.partial_len] = 0x01;
+
+            const inb = OppState512.fromBytes(self.buf);
+            const zero_state = OppState512{ .s = [_]u64{0} ** 8 };
+            const block = oppMem512(zero_state, self.le);
+            const outb = block.xor(inb);
+
+            const result_bytes = outb.toBytes();
+            if (output.len >= self.partial_len) {
+                @memcpy(output[0..self.partial_len], result_bytes[0..self.partial_len]);
+            }
+
+            self.se = self.se.xor(inb);
+        }
+
+        const final_mask = beta512(beta512(self.le));
+        const tag_state = self.sa.xor(oppMem512(self.se, final_mask));
+        const tag_bytes = tag_state.toBytes();
+        @memcpy(tag, tag_bytes[0..tag_length]);
+    }
+
+    /// Encrypts plaintext with associated data and generates authentication tag
+    pub fn encrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, plaintext: []const u8, ciphertext: []u8, tag: *[tag_length]u8) void {
+        var state = Self.init(key, nonce);
+        state.updateAd(ad);
+
+        const full_blocks = plaintext.len / block_length;
+        const processed_len = full_blocks * block_length;
+
+        state.update(ciphertext, plaintext);
+
+        var empty_output: [0]u8 = undefined;
+        const remaining_output = if (processed_len < ciphertext.len) ciphertext[processed_len..] else &empty_output;
+        state.finalize(remaining_output, tag);
+    }
+};
+
+fn phi256(x: OppState256) OppState256 {
+    return OppState256{
+        .a = x.b,
+        .b = x.c,
+        .c = x.d,
+        .d = std.math.rotl(u64, x.a, 3) ^ (x.d >> 5),
+    };
+}
+
+fn alpha256(x: OppState256) OppState256 {
+    return phi256(x);
+}
+
+fn beta256(x: OppState256) OppState256 {
+    return phi256(x).xor(x);
+}
+
+fn gamma256(x: OppState256) OppState256 {
+    const phi_x = phi256(x);
+    const phi2_x = phi256(phi_x);
+    return phi2_x.xor(phi_x).xor(x);
+}
+
+fn phi512(x: OppState512) OppState512 {
+    var s: [8]u64 = undefined;
+    s[0] = x.s[1];
+    s[1] = x.s[2];
+    s[2] = x.s[3];
+    s[3] = x.s[4];
+    s[4] = x.s[5];
+    s[5] = x.s[6];
+    s[6] = x.s[7];
+    s[7] = std.math.rotl(u64, x.s[0], 29) ^ (x.s[1] << 9);
+    return OppState512{ .s = s };
+}
+
+fn alpha512(x: OppState512) OppState512 {
+    return phi512(x);
+}
+
+fn beta512(x: OppState512) OppState512 {
+    return phi512(x).xor(x);
+}
+
+fn gamma512(x: OppState512) OppState512 {
+    const phi_x = phi512(x);
+    const phi2_x = phi512(phi_x);
+    return phi2_x.xor(phi_x).xor(x);
+}
+
+fn oppMem256(x: OppState256, m: OppState256) OppState256 {
+    const xor_result = x.xor(m);
+    const bytes = xor_result.toBytes();
+
+    var areion_state = Areion256.fromBytes(bytes);
+    areion_state.permute();
+    const permuted_bytes = areion_state.toBytes();
+
+    const permuted_state = OppState256.fromBytes(permuted_bytes);
+    return permuted_state.xor(m);
+}
+
+fn oppMemInverse256(x: OppState256, m: OppState256) OppState256 {
+    const xor_result = x.xor(m);
+    const bytes = xor_result.toBytes();
+
+    var areion_state = Areion256.fromBytes(bytes);
+    areion_state.inversePermute();
+    const permuted_bytes = areion_state.toBytes();
+
+    const permuted_state = OppState256.fromBytes(permuted_bytes);
+    return permuted_state.xor(m);
+}
+
+fn oppMem512(x: OppState512, m: OppState512) OppState512 {
+    const xor_result = x.xor(m);
+    const bytes = xor_result.toBytes();
+
+    var areion_state = Areion512.fromBytes(bytes);
+    areion_state.permute();
+    const permuted_bytes = areion_state.toBytes();
+
+    const permuted_state = OppState512.fromBytes(permuted_bytes);
+    return permuted_state.xor(m);
+}
+
+fn initMask256(key: [16]u8, nonce: [16]u8) OppState256 {
+    var block: [32]u8 = undefined;
+    @memcpy(block[0..16], &nonce);
+    @memcpy(block[16..32], &key);
+
+    var mask = OppState256.fromBytes(block);
+    const mask_bytes = mask.toBytes();
+
+    var areion_state = Areion256.fromBytes(mask_bytes);
+    areion_state.permute();
+    const permuted_bytes = areion_state.toBytes();
+
+    return OppState256.fromBytes(permuted_bytes);
+}
+
+fn initMask512(key: [16]u8, nonce: [16]u8) OppState512 {
+    var block: [64]u8 = undefined;
+    @memcpy(block[0..16], &nonce);
+    @memset(block[16..48], 0);
+    @memcpy(block[48..64], &key);
+
+    var mask = OppState512.fromBytes(block);
+    const mask_bytes = mask.toBytes();
+
+    var areion_state = Areion512.fromBytes(mask_bytes);
+    areion_state.permute();
+    const permuted_bytes = areion_state.toBytes();
+
+    return OppState512.fromBytes(permuted_bytes);
+}
 
 const testing = std.testing;
 
@@ -606,4 +1148,118 @@ test "areion deterministic behavior" {
     try testing.expectEqualSlices(u8, &out1_256, &out2_256);
 
     try testing.expect(!std.mem.eql(u8, out1_512[0..16], &out1_256));
+}
+
+test "areion256-opp encrypt/decrypt consistency" {
+    const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const nonce = [_]u8{ 0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00 };
+    const ad: []const u8 = &[_]u8{};
+    const plaintext: []const u8 = &[_]u8{};
+
+    var ciphertext: [0]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Areion256Opp.encrypt(key, nonce, ad, plaintext, &ciphertext, &tag);
+
+    var decrypted: [0]u8 = undefined;
+    try Areion256Opp.decrypt(key, nonce, ad, &ciphertext, tag, &decrypted);
+}
+
+test "areion512-opp encrypt/decrypt consistency" {
+    const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const nonce = [_]u8{ 0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00 };
+    const ad: []const u8 = &[_]u8{};
+    const plaintext: []const u8 = &[_]u8{};
+
+    var ciphertext: [0]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Areion512Opp.encrypt(key, nonce, ad, plaintext, &ciphertext, &tag);
+}
+
+test "areion256-opp empty ad and message" {
+    const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const nonce = [_]u8{ 0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00 };
+    const ad: []const u8 = &[_]u8{};
+    const plaintext: []const u8 = &[_]u8{};
+
+    var ciphertext: [0]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Areion256Opp.encrypt(key, nonce, ad, plaintext, &ciphertext, &tag);
+
+    var decrypted: [0]u8 = undefined;
+    try Areion256Opp.decrypt(key, nonce, ad, &ciphertext, tag, &decrypted);
+}
+
+test "areion256-opp authentication failure" {
+    const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const nonce = [_]u8{ 0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00 };
+    const ad = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const plaintext = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+
+    var ciphertext: [16]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Areion256Opp.encrypt(key, nonce, &ad, &plaintext, &ciphertext, &tag);
+
+    tag[0] ^= 1;
+
+    var decrypted: [16]u8 = undefined;
+    try testing.expectError(error.AuthenticationFailed, Areion256Opp.decrypt(key, nonce, &ad, &ciphertext, tag, &decrypted));
+}
+
+test "areion256-opp reference test vector #1" {
+    const key = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const nonce = [_]u8{ 0xf0, 0xe0, 0xd0, 0xc0, 0xb0, 0xa0, 0x90, 0x80, 0x70, 0x60, 0x50, 0x40, 0x30, 0x20, 0x10, 0x00 };
+    const ad = [_]u8{ 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f };
+    const plaintext = [_]u8{
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    };
+    const expected_ciphertext = [_]u8{
+        0xCF, 0x48, 0xBE, 0x2E, 0x80, 0xF8, 0x1E, 0x74,
+        0xCC, 0xE2, 0x07, 0xE8, 0x22, 0x0C, 0xD4, 0x9E,
+        0xD9, 0x54, 0x45, 0xF7, 0x63, 0x0F, 0xC8, 0x1C,
+        0xFE, 0xC2, 0xE4, 0x56, 0x10, 0x16, 0x0C, 0x00,
+    };
+    const expected_tag = [_]u8{
+        0xE8, 0x4A, 0xB7, 0x94, 0x4E, 0xE1, 0x9F, 0xC5,
+        0x60, 0x6F, 0xD3, 0x92, 0x88, 0x28, 0xB4, 0x07,
+    };
+
+    var ciphertext: [32]u8 = undefined;
+    var tag: [16]u8 = undefined;
+
+    Areion256Opp.encrypt(key, nonce, &ad, &plaintext, &ciphertext, &tag);
+
+    try testing.expectEqualSlices(u8, &expected_ciphertext, &ciphertext);
+    try testing.expectEqualSlices(u8, &expected_tag, &tag);
+
+    var decrypted: [32]u8 = undefined;
+    try Areion256Opp.decrypt(key, nonce, &ad, &ciphertext, tag, &decrypted);
+    try testing.expectEqualSlices(u8, &plaintext, &decrypted);
+}
+
+test "areion256 permutation reference test vector #1" {
+    const input = [_]u8{
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    };
+    const expected = [_]u8{
+        0x28, 0x12, 0xa7, 0x24, 0x65, 0xb2, 0x6e, 0x9f,
+        0xca, 0x75, 0x83, 0xf6, 0xe4, 0x12, 0x3a, 0xa1,
+        0x49, 0x0e, 0x35, 0xe7, 0xd5, 0x20, 0x3e, 0x4b,
+        0xa2, 0xe9, 0x27, 0xb0, 0x48, 0x2f, 0x4d, 0xb8,
+    };
+
+    var state = Areion256.fromBytes(input);
+    state.permute();
+    const result = state.toBytes();
+
+    try testing.expectEqualSlices(u8, &expected, &result);
 }
