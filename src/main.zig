@@ -166,12 +166,12 @@ pub const Areion512 = struct {
 
     /// Applies the inverse Areion512 permutation
     pub fn inversePermute(self: *Self) void {
-        // Reverse the final block rotation: (x0,x1,x2,x3) -> (x3,x0,x1,x2)
+        // Reverse the final block rotation: (x3,x0,x1,x2) -> (x0,x1,x2,x3)
         const temp = self.blocks[0];
-        self.blocks[0] = self.blocks[3];
-        self.blocks[3] = self.blocks[2];
-        self.blocks[2] = self.blocks[1];
-        self.blocks[1] = temp;
+        self.blocks[0] = self.blocks[1];
+        self.blocks[1] = self.blocks[2];
+        self.blocks[2] = self.blocks[3];
+        self.blocks[3] = temp;
 
         const rcs = comptime rcs: {
             const ints = [15]u128{
@@ -192,9 +192,8 @@ pub const Areion512 = struct {
 
         const invRoundFunction512 = struct {
             fn apply(x0: *AesBlock, x1: *AesBlock, x2: *AesBlock, x3: *AesBlock, rc: AesBlock, zero: AesBlock) void {
-                // Note: This doesn't match the C reference exactly due to lack of inverse MixColumns
                 x0.* = x0.decryptLast(zero);
-                x2.* = x2.decrypt(rc).decryptLast(zero);
+                x2.* = x2.invMixColumns().decryptLast(rc).decryptLast(zero);
                 x1.* = x0.encrypt(x1.*);
                 x3.* = x2.encrypt(x3.*);
             }
@@ -1309,4 +1308,32 @@ test "areion256 permutation reference test vector #1" {
     const result = state.toBytes();
 
     try testing.expectEqualSlices(u8, &expected, &result);
+}
+
+test "areion512 permute/inversePermute roundtrip" {
+    var input: [64]u8 = undefined;
+    for (0..64) |i| {
+        input[i] = @truncate(i *% 7 +% 13);
+    }
+
+    var state = Areion512.fromBytes(input);
+    state.permute();
+    state.inversePermute();
+    const result = state.toBytes();
+
+    try testing.expectEqualSlices(u8, &input, &result);
+}
+
+test "areion256 permute/inversePermute roundtrip" {
+    var input: [32]u8 = undefined;
+    for (0..32) |i| {
+        input[i] = @truncate(i *% 7 +% 13);
+    }
+
+    var state = Areion256.fromBytes(input);
+    state.permute();
+    state.inversePermute();
+    const result = state.toBytes();
+
+    try testing.expectEqualSlices(u8, &input, &result);
 }
