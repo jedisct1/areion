@@ -1,5 +1,278 @@
 const std = @import("std");
 const AesBlock = std.crypto.core.aes.Block;
+const AesBlockVec = std.crypto.core.aes.BlockVec;
+
+pub fn Areion512Vec(comptime count: usize) type {
+    const BlockVec = AesBlockVec(count);
+
+    return struct {
+        const Self = @This();
+
+        pub const block_length = Areion512.block_length * count;
+        pub const digest_length = Areion512.digest_length * count;
+
+        blocks: [4]BlockVec,
+
+        fn broadcast(block: AesBlock) BlockVec {
+            const single = block.toBytes();
+            var repeated: [16 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                repeated[i * 16 ..][0..16].* = single;
+            }
+            return BlockVec.fromBytes(&repeated);
+        }
+
+        pub fn fromBytes(bytes: *const [64 * count]u8) Self {
+            var transposed: [4][16 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                inline for (0..4) |j| {
+                    transposed[j][i * 16 ..][0..16].* = bytes[i * 64 + j * 16 ..][0..16].*;
+                }
+            }
+            return Self{
+                .blocks = .{
+                    BlockVec.fromBytes(&transposed[0]),
+                    BlockVec.fromBytes(&transposed[1]),
+                    BlockVec.fromBytes(&transposed[2]),
+                    BlockVec.fromBytes(&transposed[3]),
+                },
+            };
+        }
+
+        pub fn toBytes(self: Self) [64 * count]u8 {
+            const t0 = self.blocks[0].toBytes();
+            const t1 = self.blocks[1].toBytes();
+            const t2 = self.blocks[2].toBytes();
+            const t3 = self.blocks[3].toBytes();
+            var bytes: [64 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                bytes[i * 64 + 0 ..][0..16].* = t0[i * 16 ..][0..16].*;
+                bytes[i * 64 + 16 ..][0..16].* = t1[i * 16 ..][0..16].*;
+                bytes[i * 64 + 32 ..][0..16].* = t2[i * 16 ..][0..16].*;
+                bytes[i * 64 + 48 ..][0..16].* = t3[i * 16 ..][0..16].*;
+            }
+            return bytes;
+        }
+
+        pub fn xorBlocks(self: Self, other: Self) Self {
+            return Self{
+                .blocks = .{
+                    self.blocks[0].xorBlocks(other.blocks[0]),
+                    self.blocks[1].xorBlocks(other.blocks[1]),
+                    self.blocks[2].xorBlocks(other.blocks[2]),
+                    self.blocks[3].xorBlocks(other.blocks[3]),
+                },
+            };
+        }
+
+        fn roundFunction512Vec(x0: *BlockVec, x1: *BlockVec, x2: *BlockVec, x3: *BlockVec, rc_vec: BlockVec, rc1_vec: BlockVec) void {
+            const orig_x0 = x0.*;
+            const orig_x2 = x2.*;
+            x1.* = orig_x0.encrypt(x1.*);
+            x3.* = orig_x2.encrypt(x3.*);
+            x0.* = orig_x0.encryptLast(rc1_vec);
+            x2.* = orig_x2.encryptLast(rc_vec).encrypt(rc1_vec);
+        }
+
+        pub fn permute(self: *Self) void {
+            const rcs = comptime rcs: {
+                const ints = [15]u128{
+                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
+                };
+                var rcs: [ints.len]BlockVec = undefined;
+                for (&rcs, ints) |*rc, v| {
+                    var b: [16]u8 = undefined;
+                    std.mem.writeInt(u128, &b, v, .little);
+                    rc.* = broadcast(AesBlock.fromBytes(&b));
+                }
+                break :rcs rcs;
+            };
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+
+            var i: usize = 0;
+            while (i < 12) : (i += 4) {
+                roundFunction512Vec(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[i + 0], rc1_vec);
+                roundFunction512Vec(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[i + 1], rc1_vec);
+                roundFunction512Vec(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[i + 2], rc1_vec);
+                roundFunction512Vec(&self.blocks[3], &self.blocks[0], &self.blocks[1], &self.blocks[2], rcs[i + 3], rc1_vec);
+            }
+
+            roundFunction512Vec(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[12], rc1_vec);
+            roundFunction512Vec(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[13], rc1_vec);
+            roundFunction512Vec(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[14], rc1_vec);
+
+            const temp = self.blocks[0];
+            self.blocks[0] = self.blocks[3];
+            self.blocks[3] = self.blocks[2];
+            self.blocks[2] = self.blocks[1];
+            self.blocks[1] = temp;
+        }
+
+        pub fn inversePermute(self: *Self) void {
+            const temp = self.blocks[0];
+            self.blocks[0] = self.blocks[1];
+            self.blocks[1] = self.blocks[2];
+            self.blocks[2] = self.blocks[3];
+            self.blocks[3] = temp;
+
+            const rcs = comptime rcs: {
+                const ints = [15]u128{
+                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
+                };
+                var rcs: [ints.len]BlockVec = undefined;
+                for (&rcs, ints) |*rc, v| {
+                    var b: [16]u8 = undefined;
+                    std.mem.writeInt(u128, &b, v, .little);
+                    rc.* = broadcast(AesBlock.fromBytes(&b));
+                }
+                break :rcs rcs;
+            };
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+
+            const invRoundFunction512Vec = struct {
+                fn apply(x0: *BlockVec, x1: *BlockVec, x2: *BlockVec, x3: *BlockVec, rc_vec: BlockVec, zero_vec: BlockVec) void {
+                    x0.* = x0.decryptLast(zero_vec);
+                    x2.* = x2.invMixColumns().decryptLast(rc_vec).decryptLast(zero_vec);
+                    x1.* = x0.encrypt(x1.*);
+                    x3.* = x2.encrypt(x3.*);
+                }
+            }.apply;
+
+            invRoundFunction512Vec(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[14], rc1_vec);
+            invRoundFunction512Vec(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[13], rc1_vec);
+            invRoundFunction512Vec(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[12], rc1_vec);
+
+            var i: usize = 0;
+            while (i < 12) : (i += 4) {
+                invRoundFunction512Vec(&self.blocks[3], &self.blocks[0], &self.blocks[1], &self.blocks[2], rcs[11 - i], rc1_vec);
+                invRoundFunction512Vec(&self.blocks[2], &self.blocks[3], &self.blocks[0], &self.blocks[1], rcs[10 - i], rc1_vec);
+                invRoundFunction512Vec(&self.blocks[1], &self.blocks[2], &self.blocks[3], &self.blocks[0], rcs[9 - i], rc1_vec);
+                invRoundFunction512Vec(&self.blocks[0], &self.blocks[1], &self.blocks[2], &self.blocks[3], rcs[8 - i], rc1_vec);
+            }
+        }
+    };
+}
+
+pub fn Areion256Vec(comptime count: usize) type {
+    const BlockVec = AesBlockVec(count);
+
+    return struct {
+        const Self = @This();
+
+        pub const block_length = Areion256.block_length * count;
+        pub const digest_length = Areion256.digest_length * count;
+
+        blocks: [2]BlockVec,
+
+        fn broadcast(block: AesBlock) BlockVec {
+            const single = block.toBytes();
+            var repeated: [16 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                repeated[i * 16 ..][0..16].* = single;
+            }
+            return BlockVec.fromBytes(&repeated);
+        }
+
+        pub fn fromBytes(bytes: *const [32 * count]u8) Self {
+            var transposed: [2][16 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                inline for (0..2) |j| {
+                    transposed[j][i * 16 ..][0..16].* = bytes[i * 32 + j * 16 ..][0..16].*;
+                }
+            }
+            return Self{
+                .blocks = .{
+                    BlockVec.fromBytes(&transposed[0]),
+                    BlockVec.fromBytes(&transposed[1]),
+                },
+            };
+        }
+
+        pub fn toBytes(self: Self) [32 * count]u8 {
+            const t0 = self.blocks[0].toBytes();
+            const t1 = self.blocks[1].toBytes();
+            var bytes: [32 * count]u8 = undefined;
+            inline for (0..count) |i| {
+                bytes[i * 32 + 0 ..][0..16].* = t0[i * 16 ..][0..16].*;
+                bytes[i * 32 + 16 ..][0..16].* = t1[i * 16 ..][0..16].*;
+            }
+            return bytes;
+        }
+
+        pub fn xorBlocks(self: Self, other: Self) Self {
+            return Self{
+                .blocks = .{
+                    self.blocks[0].xorBlocks(other.blocks[0]),
+                    self.blocks[1].xorBlocks(other.blocks[1]),
+                },
+            };
+        }
+
+        pub fn permute(self: *Self) void {
+            const rcs = comptime rcs: {
+                const ints = [10]u128{
+                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
+                };
+                var rcs: [ints.len]BlockVec = undefined;
+                for (&rcs, ints) |*rc, v| {
+                    var b: [16]u8 = undefined;
+                    std.mem.writeInt(u128, &b, v, .little);
+                    rc.* = broadcast(AesBlock.fromBytes(&b));
+                }
+                break :rcs rcs;
+            };
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+
+            inline for (rcs, 0..) |rc_vec, round| {
+                if (round % 2 == 0) {
+                    const new_x1 = self.blocks[0].encrypt(rc_vec).encrypt(self.blocks[1]);
+                    const new_x0 = self.blocks[0].encryptLast(rc1_vec);
+                    self.blocks[0] = new_x0;
+                    self.blocks[1] = new_x1;
+                } else {
+                    const new_x0 = self.blocks[1].encrypt(rc_vec).encrypt(self.blocks[0]);
+                    const new_x1 = self.blocks[1].encryptLast(rc1_vec);
+                    self.blocks[0] = new_x0;
+                    self.blocks[1] = new_x1;
+                }
+            }
+        }
+
+        pub fn inversePermute(self: *Self) void {
+            const rcs = comptime rcs: {
+                const ints = [10]u128{
+                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
+                };
+                var rcs: [ints.len]BlockVec = undefined;
+                for (&rcs, ints) |*rc, v| {
+                    var b: [16]u8 = undefined;
+                    std.mem.writeInt(u128, &b, v, .little);
+                    rc.* = broadcast(AesBlock.fromBytes(&b));
+                }
+                break :rcs rcs;
+            };
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+
+            var round_idx: usize = 0;
+            while (round_idx < 10) : (round_idx += 2) {
+                {
+                    const rc_vec = rcs[9 - round_idx];
+                    const new_x1 = self.blocks[1].decryptLast(rc1_vec);
+                    const new_x0 = new_x1.encrypt(rc_vec).encrypt(self.blocks[0]);
+                    self.blocks[0] = new_x0;
+                    self.blocks[1] = new_x1;
+                }
+                {
+                    const rc_vec = rcs[8 - round_idx];
+                    const new_x0 = self.blocks[0].decryptLast(rc1_vec);
+                    const new_x1 = new_x0.encrypt(rc_vec).encrypt(self.blocks[1]);
+                    self.blocks[0] = new_x0;
+                    self.blocks[1] = new_x1;
+                }
+            }
+        }
+    };
+}
 
 /// Areion512 implements the 512-bit variant of the Areion permutation and hash function.
 /// It uses 4 AES blocks (512 bits total) and is optimized for speed, particularly on small inputs.
@@ -1336,4 +1609,150 @@ test "areion256 permute/inversePermute roundtrip" {
     const result = state.toBytes();
 
     try testing.expectEqualSlices(u8, &input, &result);
+}
+
+test "areion512Vec matches scalar implementation" {
+    const Vec2 = Areion512Vec(2);
+
+    var input0: [64]u8 = undefined;
+    var input1: [64]u8 = undefined;
+    for (0..64) |i| {
+        input0[i] = @truncate(i);
+        input1[i] = @truncate(i *% 3 +% 17);
+    }
+
+    var scalar0 = Areion512.fromBytes(input0);
+    var scalar1 = Areion512.fromBytes(input1);
+    scalar0.permute();
+    scalar1.permute();
+
+    var combined_input: [128]u8 = undefined;
+    @memcpy(combined_input[0..64], &input0);
+    @memcpy(combined_input[64..128], &input1);
+
+    var vec_state = Vec2.fromBytes(&combined_input);
+    vec_state.permute();
+    const vec_result = vec_state.toBytes();
+
+    try testing.expectEqualSlices(u8, &scalar0.toBytes(), vec_result[0..64]);
+    try testing.expectEqualSlices(u8, &scalar1.toBytes(), vec_result[64..128]);
+}
+
+test "areion256Vec matches scalar implementation" {
+    const Vec2 = Areion256Vec(2);
+
+    var input0: [32]u8 = undefined;
+    var input1: [32]u8 = undefined;
+    for (0..32) |i| {
+        input0[i] = @truncate(i);
+        input1[i] = @truncate(i *% 5 +% 23);
+    }
+
+    var scalar0 = Areion256.fromBytes(input0);
+    var scalar1 = Areion256.fromBytes(input1);
+    scalar0.permute();
+    scalar1.permute();
+
+    var combined_input: [64]u8 = undefined;
+    @memcpy(combined_input[0..32], &input0);
+    @memcpy(combined_input[32..64], &input1);
+
+    var vec_state = Vec2.fromBytes(&combined_input);
+    vec_state.permute();
+    const vec_result = vec_state.toBytes();
+
+    try testing.expectEqualSlices(u8, &scalar0.toBytes(), vec_result[0..32]);
+    try testing.expectEqualSlices(u8, &scalar1.toBytes(), vec_result[32..64]);
+}
+
+test "areion512Vec permute/inversePermute roundtrip" {
+    const Vec2 = Areion512Vec(2);
+
+    var input: [128]u8 = undefined;
+    for (0..128) |i| {
+        input[i] = @truncate(i *% 11 +% 7);
+    }
+
+    var state = Vec2.fromBytes(&input);
+    state.permute();
+    state.inversePermute();
+    const result = state.toBytes();
+
+    try testing.expectEqualSlices(u8, &input, &result);
+}
+
+test "areion256Vec permute/inversePermute roundtrip" {
+    const Vec2 = Areion256Vec(2);
+
+    var input: [64]u8 = undefined;
+    for (0..64) |i| {
+        input[i] = @truncate(i *% 13 +% 3);
+    }
+
+    var state = Vec2.fromBytes(&input);
+    state.permute();
+    state.inversePermute();
+    const result = state.toBytes();
+
+    try testing.expectEqualSlices(u8, &input, &result);
+}
+
+test "areion512Vec with 4 parallel states" {
+    const Vec4 = Areion512Vec(4);
+
+    var inputs: [4][64]u8 = undefined;
+    for (0..4) |idx| {
+        for (0..64) |i| {
+            inputs[idx][i] = @truncate(i *% (idx + 1) +% idx);
+        }
+    }
+
+    var scalars: [4]Areion512 = undefined;
+    for (0..4) |idx| {
+        scalars[idx] = Areion512.fromBytes(inputs[idx]);
+        scalars[idx].permute();
+    }
+
+    var combined: [256]u8 = undefined;
+    for (0..4) |idx| {
+        @memcpy(combined[idx * 64 ..][0..64], &inputs[idx]);
+    }
+
+    var vec_state = Vec4.fromBytes(&combined);
+    vec_state.permute();
+    const vec_result = vec_state.toBytes();
+
+    for (0..4) |idx| {
+        try testing.expectEqualSlices(u8, &scalars[idx].toBytes(), vec_result[idx * 64 ..][0..64]);
+    }
+}
+
+test "areion256Vec with 4 parallel states" {
+    const Vec4 = Areion256Vec(4);
+
+    var inputs: [4][32]u8 = undefined;
+    for (0..4) |idx| {
+        for (0..32) |i| {
+            inputs[idx][i] = @truncate(i *% (idx + 2) +% (idx * 7));
+        }
+    }
+
+    var scalars: [4]Areion256 = undefined;
+    for (0..4) |idx| {
+        scalars[idx] = Areion256.fromBytes(inputs[idx]);
+        scalars[idx].permute();
+    }
+
+    var combined: [128]u8 = undefined;
+    for (0..4) |idx| {
+        @memcpy(combined[idx * 32 ..][0..32], &inputs[idx]);
+    }
+
+    var vec_state = Vec4.fromBytes(&combined);
+    vec_state.permute();
+    const vec_result = vec_state.toBytes();
+
+    for (0..4) |idx| {
+        try testing.expectEqualSlices(u8, &scalars[idx].toBytes(), vec_result[idx * 32 ..][0..32]);
+    }
 }
