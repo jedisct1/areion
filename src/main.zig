@@ -17,6 +17,9 @@ const AuthenticationError = crypto.errors.AuthenticationError;
 const AesBlock = crypto.core.aes.Block;
 const AesBlockVec = crypto.core.aes.BlockVec;
 
+pub const och = @import("och.zig");
+pub const AreionOCH = och.AreionOCH;
+
 pub fn Areion512Vec(comptime count: usize) type {
     const BlockVec = AesBlockVec(count);
 
@@ -1270,6 +1273,10 @@ fn initMask512(key: [16]u8, nonce: [16]u8) OppState512 {
 }
 
 const testing = std.testing;
+
+test {
+    _ = och;
+}
 
 test "areion512 permutation test vectors" {
     var state = Areion512.fromBytes([_]u8{0} ** 64);
