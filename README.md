@@ -6,6 +6,7 @@ Fast Zig implementation of the [Areion](https://eprint.iacr.org/2023/794.pdf) pe
 
 - **Areion512**: 512-bit permutation with 32-byte input blocks and 32-byte hash output
 - **Areion256**: 256-bit permutation with 16-byte input blocks and 16-byte hash output
+- **AreionOCH**: Authenticated encryption with associated data (AEAD) using OCH mode
 - AES-based permutation using hardware acceleration when available
 - Merkle-Damgård construction with Davies-Meyer compression
 - Comprehensive test vectors included
@@ -47,6 +48,22 @@ var state512 = areion.Areion512{};
 state512.absorb([_]u8{0x01} ** 32);  // Absorb 32-byte input
 state512.permute();                   // Apply permutation
 const squeezed = state512.squeeze();  // Extract 32-byte output
+
+// Authenticated encryption with AreionOCH
+const key: [32]u8 = ...; // 256-bit key
+const npub: [24]u8 = ...; // 192-bit public nonce
+const nsec: [8]u8 = ...; // 64-bit secret nonce
+const plaintext = "secret message";
+const associated_data = "metadata";
+
+var ciphertext: [plaintext.len + 8]u8 = undefined;
+var tag: [32]u8 = undefined;
+areion.AreionOCH.encrypt(&ciphertext, &tag, plaintext, associated_data, npub, nsec, key);
+
+// Decryption
+var decrypted: [plaintext.len]u8 = undefined;
+var recovered_nsec: [8]u8 = undefined;
+try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, associated_data, npub, key);
 ```
 
 ## API Reference
