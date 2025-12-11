@@ -20,13 +20,19 @@ const AesBlockVec = crypto.core.aes.BlockVec;
 pub const och = @import("och.zig");
 pub const AreionOCH = och.AreionOCH;
 
+/// Vectorized Areion512 permutation for parallel processing of multiple states.
+///
+/// Processes `count` independent 512-bit states simultaneously using SIMD,
+/// providing significant throughput improvements on supported hardware.
 pub fn Areion512Vec(comptime count: usize) type {
     const BlockVec = AesBlockVec(count);
 
     return struct {
         const State = @This();
 
+        /// Total block length in bytes across all parallel states.
         pub const block_length = Areion512.block_length * count;
+        /// Total digest length in bytes across all parallel states.
         pub const digest_length = Areion512.digest_length * count;
 
         blocks: [4]BlockVec,
@@ -40,6 +46,8 @@ pub fn Areion512Vec(comptime count: usize) type {
             return BlockVec.fromBytes(&repeated);
         }
 
+        /// Creates a vectorized state from concatenated byte arrays.
+        /// Input should contain `count` consecutive 64-byte blocks.
         pub fn fromBytes(bytes: *const [64 * count]u8) State {
             var transposed: [4][16 * count]u8 = undefined;
             inline for (0..count) |i| {
@@ -57,6 +65,7 @@ pub fn Areion512Vec(comptime count: usize) type {
             };
         }
 
+        /// Serializes the vectorized state to concatenated byte arrays.
         pub fn toBytes(state: State) [64 * count]u8 {
             const t0 = state.blocks[0].toBytes();
             const t1 = state.blocks[1].toBytes();
@@ -72,6 +81,7 @@ pub fn Areion512Vec(comptime count: usize) type {
             return bytes;
         }
 
+        /// XORs two vectorized states element-wise.
         pub fn xorBlocks(state: State, other: State) State {
             return .{
                 .blocks = .{
@@ -92,6 +102,7 @@ pub fn Areion512Vec(comptime count: usize) type {
             x2.* = orig_x2.encryptLast(rc_vec).encrypt(rc1_vec);
         }
 
+        /// Applies the 15-round Areion512 permutation to all parallel states.
         pub fn permute(state: *State) void {
             const rcs = comptime rcs: {
                 const ints = [15]u128{
@@ -126,6 +137,7 @@ pub fn Areion512Vec(comptime count: usize) type {
             state.blocks[1] = temp;
         }
 
+        /// Applies the inverse of the Areion512 permutation.
         pub fn inversePermute(state: *State) void {
             const temp = state.blocks[0];
             state.blocks[0] = state.blocks[1];
@@ -171,13 +183,19 @@ pub fn Areion512Vec(comptime count: usize) type {
     };
 }
 
+/// Vectorized Areion256 permutation for parallel processing of multiple states.
+///
+/// Processes `count` independent 256-bit states simultaneously using SIMD,
+/// providing significant throughput improvements on supported hardware.
 pub fn Areion256Vec(comptime count: usize) type {
     const BlockVec = AesBlockVec(count);
 
     return struct {
         const State = @This();
 
+        /// Total block length in bytes across all parallel states.
         pub const block_length = Areion256.block_length * count;
+        /// Total digest length in bytes across all parallel states.
         pub const digest_length = Areion256.digest_length * count;
 
         blocks: [2]BlockVec,
@@ -191,6 +209,8 @@ pub fn Areion256Vec(comptime count: usize) type {
             return BlockVec.fromBytes(&repeated);
         }
 
+        /// Creates a vectorized state from concatenated byte arrays.
+        /// Input should contain `count` consecutive 32-byte blocks.
         pub fn fromBytes(bytes: *const [32 * count]u8) State {
             var transposed: [2][16 * count]u8 = undefined;
             inline for (0..count) |i| {
@@ -206,6 +226,7 @@ pub fn Areion256Vec(comptime count: usize) type {
             };
         }
 
+        /// Serializes the vectorized state to concatenated byte arrays.
         pub fn toBytes(state: State) [32 * count]u8 {
             const t0 = state.blocks[0].toBytes();
             const t1 = state.blocks[1].toBytes();
@@ -217,6 +238,7 @@ pub fn Areion256Vec(comptime count: usize) type {
             return bytes;
         }
 
+        /// XORs two vectorized states element-wise.
         pub fn xorBlocks(state: State, other: State) State {
             return .{
                 .blocks = .{
@@ -226,6 +248,7 @@ pub fn Areion256Vec(comptime count: usize) type {
             };
         }
 
+        /// Applies the 10-round Areion256 permutation to all parallel states.
         pub fn permute(state: *State) void {
             const rcs = comptime rcs: {
                 const ints = [10]u128{
@@ -256,6 +279,7 @@ pub fn Areion256Vec(comptime count: usize) type {
             }
         }
 
+        /// Applies the inverse of the Areion256 permutation.
         pub fn inversePermute(state: *State) void {
             const rcs = comptime rcs: {
                 const ints = [10]u128{
@@ -292,9 +316,17 @@ pub fn Areion256Vec(comptime count: usize) type {
     };
 }
 
+/// Areion512 is a 512-bit AES-based cryptographic permutation.
+///
+/// The permutation operates on a 64-byte state using 15 rounds of AES-based
+/// transformations. It provides a hash function via Merkle-Damgård construction
+/// with a 32-byte digest. Optimized for hardware AES acceleration.
 pub const Areion512 = struct {
+    /// Input block size in bytes for the hash function (rate portion).
     pub const block_length = 32;
+    /// Output digest size in bytes.
     pub const digest_length = 32;
+    /// Hash options (currently unused, for API compatibility).
     pub const Options = struct {};
 
     blocks: [4]AesBlock = blocks: {
@@ -308,6 +340,7 @@ pub const Areion512 = struct {
         break :blocks blocks;
     },
 
+    /// Creates a state from a 64-byte array.
     pub fn fromBytes(bytes: [64]u8) Areion512 {
         var blocks: [4]AesBlock = undefined;
         inline for (&blocks, 0..) |*b, i| {
@@ -316,16 +349,19 @@ pub const Areion512 = struct {
         return .{ .blocks = blocks };
     }
 
+    /// Sets the rate portion of the sponge state (first 32 bytes).
     pub fn setRate(d: *Areion512, bytes: [32]u8) void {
         d.blocks[0] = AesBlock.fromBytes(bytes[0..16]);
         d.blocks[1] = AesBlock.fromBytes(bytes[16..32]);
     }
 
+    /// Sets the capacity portion of the sponge state (last 32 bytes).
     pub fn setCapacity(d: *Areion512, s: [32]u8) void {
         d.blocks[2] = AesBlock.fromBytes(s[0..16]);
         d.blocks[3] = AesBlock.fromBytes(s[16..32]);
     }
 
+    /// Returns the capacity portion of the sponge state.
     pub fn getCapacity(d: Areion512) [32]u8 {
         var s: [32]u8 = undefined;
         @memcpy(s[0..16], &d.blocks[2].toBytes());
@@ -333,6 +369,7 @@ pub const Areion512 = struct {
         return s;
     }
 
+    /// XORs input bytes into the rate portion of the state.
     pub fn absorb(d: *Areion512, bytes: [32]u8) void {
         const block0_bytes = d.blocks[0].toBytes();
         const block1_bytes = d.blocks[1].toBytes();
@@ -351,6 +388,7 @@ pub const Areion512 = struct {
         d.blocks[1] = AesBlock.fromBytes(&new_block1_bytes);
     }
 
+    /// Extracts the rate portion of the state as output bytes.
     pub fn squeeze(d: Areion512) [32]u8 {
         var rate: [32]u8 = undefined;
         @memcpy(rate[0..16], &d.blocks[0].toBytes());
@@ -384,6 +422,7 @@ pub const Areion512 = struct {
         @memcpy(output[24..32], block3_bytes[0..8]);
     }
 
+    /// Serializes the full 64-byte state to a byte array.
     pub fn toBytes(d: Areion512) [64]u8 {
         var bytes: [64]u8 = undefined;
         inline for (d.blocks, 0..) |b, i| {
@@ -399,6 +438,7 @@ pub const Areion512 = struct {
         x2.* = x2.encryptLast(rc).encrypt(rc1);
     }
 
+    /// Applies the 15-round Areion512 permutation in-place.
     pub fn permute(d: *Areion512) void {
         const rcs = comptime rcs: {
             const ints = [15]u128{
@@ -436,6 +476,7 @@ pub const Areion512 = struct {
         d.blocks[1] = temp;
     }
 
+    /// Applies the inverse of the Areion512 permutation.
     pub fn inversePermute(d: *Areion512) void {
         const temp = d.blocks[0];
         d.blocks[0] = d.blocks[1];
@@ -481,6 +522,10 @@ pub const Areion512 = struct {
         }
     }
 
+    /// Computes a 32-byte hash of the input using Merkle-Damgård construction.
+    ///
+    /// The hash uses SHA-256's IV as the initial state and applies MD-compliant
+    /// padding with length encoding.
     pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
         _ = options;
 
@@ -528,9 +573,17 @@ pub const Areion512 = struct {
     }
 };
 
+/// Areion256 is a 256-bit AES-based cryptographic permutation.
+///
+/// The permutation operates on a 32-byte state using 10 rounds of AES-based
+/// transformations. It provides a hash function via Merkle-Damgård construction
+/// with a 16-byte digest. Optimized for hardware AES acceleration.
 pub const Areion256 = struct {
+    /// Input block size in bytes for the hash function (rate portion).
     pub const block_length = 16;
+    /// Output digest size in bytes.
     pub const digest_length = 16;
+    /// Hash options (currently unused, for API compatibility).
     pub const Options = struct {};
 
     blocks: [2]AesBlock = blocks: {
@@ -544,6 +597,7 @@ pub const Areion256 = struct {
         break :blocks blocks;
     },
 
+    /// Creates a state from a 32-byte array.
     pub fn fromBytes(bytes: [32]u8) Areion256 {
         var blocks: [2]AesBlock = undefined;
         inline for (&blocks, 0..) |*b, i| {
@@ -552,18 +606,22 @@ pub const Areion256 = struct {
         return .{ .blocks = blocks };
     }
 
+    /// Sets the rate portion of the sponge state (first 16 bytes).
     pub fn setRate(d: *Areion256, bytes: [16]u8) void {
         d.blocks[0] = AesBlock.fromBytes(bytes[0..16]);
     }
 
+    /// Sets the capacity portion of the sponge state (last 16 bytes).
     pub fn setCapacity(d: *Areion256, s: [16]u8) void {
         d.blocks[1] = AesBlock.fromBytes(s[0..16]);
     }
 
+    /// Returns the capacity portion of the sponge state.
     pub fn getCapacity(d: Areion256) [16]u8 {
         return d.blocks[1].toBytes();
     }
 
+    /// XORs input bytes into the rate portion of the state.
     pub fn absorb(d: *Areion256, bytes: [16]u8) void {
         const block0_bytes = d.blocks[0].toBytes();
         var new_block0_bytes: [16]u8 = undefined;
@@ -573,6 +631,7 @@ pub const Areion256 = struct {
         d.blocks[0] = AesBlock.fromBytes(&new_block0_bytes);
     }
 
+    /// Extracts the rate portion of the state as output bytes.
     pub fn squeeze(d: Areion256) [16]u8 {
         return d.blocks[0].toBytes();
     }
@@ -595,6 +654,7 @@ pub const Areion256 = struct {
         @memcpy(output[0..16], &d.blocks[1].toBytes());
     }
 
+    /// Serializes the full 32-byte state to a byte array.
     pub fn toBytes(d: Areion256) [32]u8 {
         var bytes: [32]u8 = undefined;
         inline for (d.blocks, 0..) |b, i| {
@@ -603,6 +663,7 @@ pub const Areion256 = struct {
         return bytes;
     }
 
+    /// Applies the 10-round Areion256 permutation in-place.
     pub fn permute(d: *Areion256) void {
         const rcs = comptime rcs: {
             const ints = [10]u128{
@@ -634,6 +695,7 @@ pub const Areion256 = struct {
         }
     }
 
+    /// Applies the inverse of the Areion256 permutation.
     pub fn inversePermute(d: *Areion256) void {
         const rcs = comptime rcs: {
             const ints = [10]u128{
@@ -667,6 +729,10 @@ pub const Areion256 = struct {
         }
     }
 
+    /// Computes a 16-byte hash of the input using Merkle-Damgård construction.
+    ///
+    /// The hash uses the first half of SHA-256's IV as the initial state and
+    /// applies MD-compliant padding with length encoding.
     pub fn hash(b: []const u8, out: *[digest_length]u8, options: Options) void {
         _ = options;
 
@@ -776,10 +842,19 @@ const OppState512 = struct {
     }
 };
 
+/// Areion256-OPP authenticated encryption with associated data (AEAD).
+///
+/// Uses the Offset Public Permutation construction with Areion256 as the
+/// underlying permutation. Provides 128-bit security for both confidentiality
+/// and authenticity. Supports streaming encryption/decryption.
 pub const Areion256Opp = struct {
+    /// Secret key length in bytes.
     pub const key_length = 16;
+    /// Nonce length in bytes.
     pub const nonce_length = 16;
+    /// Authentication tag length in bytes.
     pub const tag_length = 16;
+    /// Internal block length in bytes.
     pub const block_length = 32;
 
     sa: OppState256,
@@ -793,6 +868,7 @@ pub const Areion256Opp = struct {
     is_encrypt: bool,
     ad_finalized: bool,
 
+    /// Initializes the AEAD state for encryption or decryption.
     pub fn init(key: [key_length]u8, nonce: [nonce_length]u8, is_encrypt: bool) Areion256Opp {
         const la = initMask256(key, nonce);
         const le = gamma256(la);
@@ -811,6 +887,7 @@ pub const Areion256Opp = struct {
         };
     }
 
+    /// Processes associated data. May be called multiple times before `update`.
     pub fn updateAd(self: *Areion256Opp, ad: []const u8) void {
         var offset: usize = 0;
 
@@ -860,6 +937,8 @@ pub const Areion256Opp = struct {
         }
     }
 
+    /// Encrypts or decrypts message data, writing to the output buffer.
+    /// Output buffer must be at least as large as input.
     pub fn update(self: *Areion256Opp, output: []u8, input: []const u8) void {
         self.finalizeAd();
 
@@ -916,6 +995,8 @@ pub const Areion256Opp = struct {
         }
     }
 
+    /// Finalizes encryption/decryption and computes the authentication tag.
+    /// Processes any remaining buffered data.
     pub fn finalize(self: *Areion256Opp, output: []u8, tag: *[tag_length]u8) void {
         self.finalizeAd();
 
@@ -951,6 +1032,7 @@ pub const Areion256Opp = struct {
         @memcpy(tag, tag_bytes[0..tag_length]);
     }
 
+    /// One-shot encryption: encrypts plaintext and computes authentication tag.
     pub fn encrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, plaintext: []const u8, ciphertext: []u8, tag: *[tag_length]u8) void {
         var state = Areion256Opp.init(key, nonce, true);
         state.updateAd(ad);
@@ -965,6 +1047,8 @@ pub const Areion256Opp = struct {
         state.finalize(remaining_output, tag);
     }
 
+    /// One-shot decryption: decrypts and verifies the authentication tag.
+    /// Returns `AuthenticationFailed` if the tag doesn't match.
     pub fn decrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, ciphertext: []const u8, tag: [tag_length]u8, plaintext: []u8) AuthenticationError!void {
         var state = Areion256Opp.init(key, nonce, false);
         state.updateAd(ad);
@@ -988,10 +1072,19 @@ pub const Areion256Opp = struct {
     }
 };
 
+/// Areion512-OPP authenticated encryption with associated data (AEAD).
+///
+/// Uses the Offset Public Permutation construction with Areion512 as the
+/// underlying permutation. Provides 128-bit security for both confidentiality
+/// and authenticity. Supports streaming encryption.
 pub const Areion512Opp = struct {
+    /// Secret key length in bytes.
     pub const key_length = 16;
+    /// Nonce length in bytes.
     pub const nonce_length = 16;
+    /// Authentication tag length in bytes.
     pub const tag_length = 16;
+    /// Internal block length in bytes.
     pub const block_length = 64;
 
     sa: OppState512,
@@ -1004,6 +1097,7 @@ pub const Areion512Opp = struct {
     partial_len: usize,
     ad_finalized: bool,
 
+    /// Initializes the AEAD state for encryption.
     pub fn init(key: [key_length]u8, nonce: [nonce_length]u8) Areion512Opp {
         const la = initMask512(key, nonce);
         const le = gamma512(la);
@@ -1021,6 +1115,7 @@ pub const Areion512Opp = struct {
         };
     }
 
+    /// Processes associated data. May be called multiple times before `update`.
     pub fn updateAd(self: *Areion512Opp, ad: []const u8) void {
         var offset: usize = 0;
 
@@ -1070,6 +1165,7 @@ pub const Areion512Opp = struct {
         }
     }
 
+    /// Encrypts message data, writing to the output buffer.
     pub fn update(self: *Areion512Opp, output: []u8, input: []const u8) void {
         self.finalizeAd();
 
@@ -1113,6 +1209,7 @@ pub const Areion512Opp = struct {
         }
     }
 
+    /// Finalizes encryption and computes the authentication tag.
     pub fn finalize(self: *Areion512Opp, output: []u8, tag: *[tag_length]u8) void {
         self.finalizeAd();
 
@@ -1140,6 +1237,7 @@ pub const Areion512Opp = struct {
         @memcpy(tag, tag_bytes[0..tag_length]);
     }
 
+    /// One-shot encryption: encrypts plaintext and computes authentication tag.
     pub fn encrypt(key: [key_length]u8, nonce: [nonce_length]u8, ad: []const u8, plaintext: []const u8, ciphertext: []u8, tag: *[tag_length]u8) void {
         var state = Areion512Opp.init(key, nonce);
         state.updateAd(ad);

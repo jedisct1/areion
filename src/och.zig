@@ -28,11 +28,17 @@ pub const AreionOCH = Och(root.Areion512, root.Areion256, crypto.onetimeauth.Pol
 /// The secret nonce is embedded in the ciphertext for nonce privacy.
 pub fn Och(comptime SpongePermutation: type, comptime TbcPermutation: type, comptime UniversalHash: type) type {
     return struct {
+        /// Secret key length in bytes.
         pub const key_length = 32;
+        /// Public nonce length in bytes.
         pub const npub_length = 24;
+        /// Secret nonce length in bytes (embedded in ciphertext).
         pub const nsec_length = 8;
+        /// Total nonce length (public + secret).
         pub const nonce_length = npub_length + nsec_length;
+        /// Authentication tag length in bytes.
         pub const tag_length = UniversalHash.mac_length * 2;
+        /// Internal block length in bytes.
         pub const block_length = 32;
 
         const kappa: usize = 128;
@@ -44,13 +50,10 @@ pub fn Och(comptime SpongePermutation: type, comptime TbcPermutation: type, comp
         const OctTbc = Oct(TbcPermutation, @This());
         const DoubleHash = DoubleUniversalHash(UniversalHash);
 
-        /// c: Ciphertext destination buffer (m.len + nsec_length bytes).
-        /// tag: Authentication tag destination buffer.
-        /// m: Plaintext message.
-        /// ad: Associated data.
-        /// npub: Public nonce.
-        /// nsec: Secret nonce (embedded in ciphertext).
-        /// key: Secret key.
+        /// Encrypts a message with associated data.
+        ///
+        /// The secret nonce is embedded in the ciphertext, so `c.len == m.len + nsec_length`.
+        /// This provides nonce privacy: the secret nonce is recoverable only during decryption.
         pub fn encrypt(
             c: []u8,
             tag: *[tag_length]u8,
@@ -73,16 +76,11 @@ pub fn Och(comptime SpongePermutation: type, comptime TbcPermutation: type, comp
             }
         }
 
-        /// m: Plaintext destination buffer (c.len - nsec_length bytes).
-        /// nsec: Recovered secret nonce destination.
-        /// c: Ciphertext.
-        /// tag: Authentication tag.
-        /// ad: Associated data.
-        /// npub: Public nonce.
-        /// key: Secret key.
+        /// Decrypts a ciphertext and verifies the authentication tag.
         ///
-        /// Asserts `c.len >= nsec_length` and `m.len == c.len - nsec_length`.
-        /// Contents of `m` and `nsec` are undefined if an error is returned.
+        /// Recovers both the plaintext and the secret nonce from the ciphertext.
+        /// Returns `AuthenticationError.AuthenticationFailed` if the tag is invalid.
+        /// On failure, both `m` and `nsec` are set to undefined values.
         pub fn decrypt(
             m: []u8,
             nsec: *[nsec_length]u8,
