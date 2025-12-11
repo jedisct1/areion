@@ -88,6 +88,22 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `squeeze()`: Extract 16-byte output
 - `permute()`: Apply 10-round permutation
 
+### AreionOCH
+
+Authenticated encryption with associated data (AEAD) based on the OCH construction (CCS 2025).
+
+- `key_length`: 32 bytes
+- `npub_length`: 24 bytes (public nonce)
+- `nsec_length`: 8 bytes (secret nonce, embedded in ciphertext)
+- `tag_length`: 32 bytes (authentication tag)
+- `encrypt(c, tag, m, ad, npub, nsec, key)`: Encrypt and authenticate
+- `decrypt(m, nsec, c, tag, ad, npub, key)`: Decrypt and verify (returns `AuthenticationError` on failure)
+
+Security properties:
+- 128-bit NAE (nonce-based authenticated encryption) security
+- 128-bit CMT (context commitment) security
+- 256-bit nonces with nonce privacy (secret nonce embedded in ciphertext)
+
 ## Algorithm Details
 
 ### State Structure
@@ -113,9 +129,11 @@ This implementation is optimized for:
 - Low memory overhead
 - Cache-friendly memory access patterns
 
-## Paper and Reference
+## Papers and References
 
-This implementation is based on the corrected version of the Areion paper:
-- **Paper**: [Areion: Highly-Efficient Permutations and Its Applications](https://eprint.iacr.org/2023/794.pdf)
-- **Authors**: Clémence Bouvier, Pierre Briaud, Pyrros Chaidos, Léo Perrin, Robin Salen, Vesselin Velichkov, Danny Willems
-- **Implementation**: Uses corrected test vectors from the updated paper
+This implementation is based on:
+- **Areion**: [Areion: Highly-Efficient Permutations and Its Applications](https://eprint.iacr.org/2023/794.pdf) (CHES 2023)
+  - Authors: Clémence Bouvier, Pierre Briaud, Pyrros Chaidos, Léo Perrin, Robin Salen, Vesselin Velichkov, Danny Willems
+- **OCH**: OCH authenticated encryption mode (CCS 2025)
+
+Implementation uses corrected test vectors from the updated Areion paper.
