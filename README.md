@@ -6,11 +6,12 @@ Fast Zig implementation of the [Areion](https://eprint.iacr.org/2023/794.pdf) pe
 
 - **Areion512**: 512-bit permutation with 32-byte input blocks and 32-byte hash output
 - **Areion256**: 256-bit permutation with 16-byte input blocks and 16-byte hash output
-- **AreionOCH**: Authenticated encryption with associated data (AEAD) using OCH mode
+- **AreionOCH**: Authenticated encryption (AEAD) using the OCH construction
+- **Areion256Opp / Areion512Opp**: Authenticated encryption using the Offset Public Permutation (OPP) construction
+- **Areion512Vec / Areion256Vec**: Vectorized permutations for parallel processing of multiple independent states
 - AES-based permutation using hardware acceleration when available
 - Merkle-Damgård construction with Davies-Meyer compression
 - Comprehensive test vectors included
-- Optimized for performance on small inputs
 
 ## Building
 
@@ -74,9 +75,13 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `digest_length`: 32 bytes (output hash size)
 - `hash(input, output, options)`: Main hash function
 - `fromBytes(bytes)`: Create instance from 64-byte state
+- `toBytes()`: Serialize state to 64 bytes
 - `absorb(bytes)`: Absorb 32-byte input block
 - `squeeze()`: Extract 32-byte output
 - `permute()`: Apply 15-round permutation
+- `inversePermute()`: Apply the inverse permutation
+- `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
+- `dm(message)`: Single-call Davies-Meyer compression of a 64-byte block
 
 ### Areion256
 
@@ -84,9 +89,13 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `digest_length`: 16 bytes (output hash size)
 - `hash(input, output, options)`: Main hash function
 - `fromBytes(bytes)`: Create instance from 32-byte state
+- `toBytes()`: Serialize state to 32 bytes
 - `absorb(bytes)`: Absorb 16-byte input block
 - `squeeze()`: Extract 16-byte output
 - `permute()`: Apply 10-round permutation
+- `inversePermute()`: Apply the inverse permutation
+- `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
+- `dm(message)`: Single-call Davies-Meyer compression of a 32-byte block
 
 ### AreionOCH
 
@@ -103,6 +112,27 @@ Security properties:
 - 128-bit NAE (nonce-based authenticated encryption) security
 - 128-bit CMT (context commitment) security
 - 256-bit nonces with nonce privacy (secret nonce embedded in ciphertext)
+
+### Areion256Opp / Areion512Opp
+
+Authenticated encryption using the Offset Public Permutation (OPP) construction.
+
+- `key_length`: 16 bytes
+- `nonce_length`: 16 bytes
+- `tag_length`: 16 bytes
+- `block_length`: 32 bytes (Areion256Opp) or 64 bytes (Areion512Opp)
+- `encrypt(key, nonce, ad, plaintext, ciphertext, tag)`: Encrypt and authenticate
+- `decrypt(key, nonce, ad, ciphertext, tag, plaintext)`: Decrypt and verify (Areion256Opp only)
+
+Both provide a streaming interface via `init`, `updateAd`, `update`, and `finalize`.
+
+### Areion512Vec / Areion256Vec
+
+Vectorized permutations for processing `count` independent states in parallel using SIMD. Created via `Areion512Vec(count)` or `Areion256Vec(count)`.
+
+- `fromBytes(bytes)` / `toBytes()`: Serialize/deserialize concatenated states
+- `xorBlocks(other)`: Element-wise XOR of two vectorized states
+- `permute()` / `inversePermute()`: Apply the permutation to all parallel states
 
 ## Algorithm Details
 
@@ -135,5 +165,6 @@ This implementation is based on:
 - **Areion**: [Areion: Highly-Efficient Permutations and Its Applications](https://eprint.iacr.org/2023/794.pdf) (CHES 2023)
   - Authors: Clémence Bouvier, Pierre Briaud, Pyrros Chaidos, Léo Perrin, Robin Salen, Vesselin Velichkov, Danny Willems
 - **OCH**: OCH authenticated encryption mode (CCS 2025)
+- **OPP**: [Offset Public Permutation](https://eprint.iacr.org/2015/363.pdf) AEAD construction
 
 Implementation uses corrected test vectors from the updated Areion paper.
