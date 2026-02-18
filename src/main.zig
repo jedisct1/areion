@@ -534,18 +534,10 @@ pub const Areion512 = struct {
         return out;
     }
 
-    /// Fixed-length keyed PRF: 32-byte key + 32-byte input → 32-byte output.
-    ///
-    /// Uses an Even-Mansour style construction: places the input in the rate
-    /// and the key in the capacity, then permutes and squeezes the rate.
-    pub fn prf(input: [block_length]u8, key: [block_length]u8) [digest_length]u8 {
-        var d: Areion512 = undefined;
-        d.blocks[0] = AesBlock.fromBytes(input[0..16]);
-        d.blocks[1] = AesBlock.fromBytes(input[16..32]);
-        d.blocks[2] = AesBlock.fromBytes(key[0..16]);
-        d.blocks[3] = AesBlock.fromBytes(key[16..32]);
-        d.permute();
-        return d.squeeze();
+    /// Truncated Even-Mansour PRF: 64-byte key + 64-byte input → 32-byte output.
+    pub fn prf(input: [64]u8, key: [64]u8) [digest_length]u8 {
+        const full = encrypt(input, key);
+        return full[0..digest_length].*;
     }
 
     /// Even-Mansour block cipher: E_k(m) = k XOR π(k XOR m).
@@ -794,16 +786,10 @@ pub const Areion256 = struct {
         return d.toBytes();
     }
 
-    /// Fixed-length keyed PRF: 16-byte key + 16-byte input → 16-byte output.
-    ///
-    /// Uses an Even-Mansour style construction: places the input in the rate
-    /// and the key in the capacity, then permutes and squeezes the rate.
-    pub fn prf(input: [block_length]u8, key: [block_length]u8) [digest_length]u8 {
-        var d: Areion256 = undefined;
-        d.blocks[0] = AesBlock.fromBytes(&input);
-        d.blocks[1] = AesBlock.fromBytes(&key);
-        d.permute();
-        return d.squeeze();
+    /// Truncated Even-Mansour PRF: 32-byte key + 32-byte input → 16-byte output.
+    pub fn prf(input: [32]u8, key: [32]u8) [digest_length]u8 {
+        const full = encrypt(input, key);
+        return full[0..digest_length].*;
     }
 
     /// Even-Mansour block cipher: E_k(m) = k XOR π(k XOR m).
@@ -2005,17 +1991,17 @@ test "areion512-dm test vector #2 (sequential)" {
 }
 
 test "areion512-prf determinism" {
-    const input = [_]u8{0x42} ** 32;
-    const key = [_]u8{0x13} ** 32;
+    const input: [64]u8 = @splat(0x42);
+    const key: [64]u8 = @splat(0x13);
     const out1 = Areion512.prf(input, key);
     const out2 = Areion512.prf(input, key);
     try testing.expectEqualSlices(u8, &out1, &out2);
 }
 
 test "areion512-prf key sensitivity" {
-    const input = [_]u8{0x00} ** 32;
-    const key1 = [_]u8{0x00} ** 32;
-    var key2 = [_]u8{0x00} ** 32;
+    const input: [64]u8 = @splat(0x00);
+    const key1: [64]u8 = @splat(0x00);
+    var key2: [64]u8 = @splat(0x00);
     key2[0] = 0x01;
     const out1 = Areion512.prf(input, key1);
     const out2 = Areion512.prf(input, key2);
@@ -2023,9 +2009,9 @@ test "areion512-prf key sensitivity" {
 }
 
 test "areion512-prf input sensitivity" {
-    const key = [_]u8{0x00} ** 32;
-    const input1 = [_]u8{0x00} ** 32;
-    var input2 = [_]u8{0x00} ** 32;
+    const key: [64]u8 = @splat(0x00);
+    const input1: [64]u8 = @splat(0x00);
+    var input2: [64]u8 = @splat(0x00);
     input2[0] = 0x01;
     const out1 = Areion512.prf(input1, key);
     const out2 = Areion512.prf(input2, key);
@@ -2033,17 +2019,17 @@ test "areion512-prf input sensitivity" {
 }
 
 test "areion256-prf determinism" {
-    const input = [_]u8{0x42} ** 16;
-    const key = [_]u8{0x13} ** 16;
+    const input: [32]u8 = @splat(0x42);
+    const key: [32]u8 = @splat(0x13);
     const out1 = Areion256.prf(input, key);
     const out2 = Areion256.prf(input, key);
     try testing.expectEqualSlices(u8, &out1, &out2);
 }
 
 test "areion256-prf key sensitivity" {
-    const input = [_]u8{0x00} ** 16;
-    const key1 = [_]u8{0x00} ** 16;
-    var key2 = [_]u8{0x00} ** 16;
+    const input: [32]u8 = @splat(0x00);
+    const key1: [32]u8 = @splat(0x00);
+    var key2: [32]u8 = @splat(0x00);
     key2[0] = 0x01;
     const out1 = Areion256.prf(input, key1);
     const out2 = Areion256.prf(input, key2);
@@ -2051,9 +2037,9 @@ test "areion256-prf key sensitivity" {
 }
 
 test "areion256-prf input sensitivity" {
-    const key = [_]u8{0x00} ** 16;
-    const input1 = [_]u8{0x00} ** 16;
-    var input2 = [_]u8{0x00} ** 16;
+    const key: [32]u8 = @splat(0x00);
+    const input1: [32]u8 = @splat(0x00);
+    var input2: [32]u8 = @splat(0x00);
     input2[0] = 0x01;
     const out1 = Areion256.prf(input1, key);
     const out2 = Areion256.prf(input2, key);
