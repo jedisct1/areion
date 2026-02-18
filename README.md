@@ -83,6 +83,8 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
 - `dm(message)`: Single-call Davies-Meyer compression of a 64-byte block
 - `prf(input, key)`: Fixed-length keyed PRF (32-byte key + 32-byte input → 32-byte output)
+- `encrypt(plaintext, key)`: Even-Mansour block cipher encryption (64-byte key, 64-byte block)
+- `decrypt(ciphertext, key)`: Even-Mansour block cipher decryption
 
 ### Areion256
 
@@ -98,6 +100,8 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
 - `dm(message)`: Single-call Davies-Meyer compression of a 32-byte block
 - `prf(input, key)`: Fixed-length keyed PRF (16-byte key + 16-byte input → 16-byte output)
+- `encrypt(plaintext, key)`: Even-Mansour block cipher encryption (32-byte key, 32-byte block)
+- `decrypt(ciphertext, key)`: Even-Mansour block cipher decryption
 
 ### AreionOCH
 

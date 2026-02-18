@@ -548,6 +548,36 @@ pub const Areion512 = struct {
         return d.squeeze();
     }
 
+    /// Even-Mansour block cipher: E_k(m) = k XOR π(k XOR m).
+    ///
+    /// 64-byte key, 64-byte block. Builds a PRP from the Areion512 permutation.
+    pub fn encrypt(plaintext: [64]u8, key: [64]u8) [64]u8 {
+        var d = Areion512.fromBytes(plaintext);
+        const k = Areion512.fromBytes(key);
+        inline for (0..4) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        d.permute();
+        inline for (0..4) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        return d.toBytes();
+    }
+
+    /// Even-Mansour decryption: D_k(c) = k XOR π⁻¹(k XOR c).
+    pub fn decrypt(ciphertext: [64]u8, key: [64]u8) [64]u8 {
+        var d = Areion512.fromBytes(ciphertext);
+        const k = Areion512.fromBytes(key);
+        inline for (0..4) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        d.inversePermute();
+        inline for (0..4) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        return d.toBytes();
+    }
+
     /// Computes a 32-byte hash of the input using Merkle-Damgård construction.
     ///
     /// The hash uses SHA-256's IV as the initial state and applies MD-compliant
@@ -774,6 +804,36 @@ pub const Areion256 = struct {
         d.blocks[1] = AesBlock.fromBytes(&key);
         d.permute();
         return d.squeeze();
+    }
+
+    /// Even-Mansour block cipher: E_k(m) = k XOR π(k XOR m).
+    ///
+    /// 32-byte key, 32-byte block. Builds a PRP from the Areion256 permutation.
+    pub fn encrypt(plaintext: [32]u8, key: [32]u8) [32]u8 {
+        var d = Areion256.fromBytes(plaintext);
+        const k = Areion256.fromBytes(key);
+        inline for (0..2) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        d.permute();
+        inline for (0..2) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        return d.toBytes();
+    }
+
+    /// Even-Mansour decryption: D_k(c) = k XOR π⁻¹(k XOR c).
+    pub fn decrypt(ciphertext: [32]u8, key: [32]u8) [32]u8 {
+        var d = Areion256.fromBytes(ciphertext);
+        const k = Areion256.fromBytes(key);
+        inline for (0..2) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        d.inversePermute();
+        inline for (0..2) |i| {
+            d.blocks[i] = d.blocks[i].xorBlocks(k.blocks[i]);
+        }
+        return d.toBytes();
     }
 
     /// Computes a 16-byte hash of the input using Merkle-Damgård construction.
@@ -1682,6 +1742,62 @@ test "areion256 permute/inversePermute roundtrip" {
     const result = state.toBytes();
 
     try testing.expectEqualSlices(u8, &input, &result);
+}
+
+test "areion512 even-mansour encrypt/decrypt roundtrip" {
+    var plaintext: [64]u8 = undefined;
+    var key: [64]u8 = undefined;
+    for (0..64) |i| {
+        plaintext[i] = @truncate(i *% 7 +% 13);
+        key[i] = @truncate(i *% 11 +% 3);
+    }
+
+    const ciphertext = Areion512.encrypt(plaintext, key);
+    try testing.expect(!std.mem.eql(u8, &ciphertext, &plaintext));
+    const decrypted = Areion512.decrypt(ciphertext, key);
+    try testing.expectEqualSlices(u8, &plaintext, &decrypted);
+}
+
+test "areion256 even-mansour encrypt/decrypt roundtrip" {
+    var plaintext: [32]u8 = undefined;
+    var key: [32]u8 = undefined;
+    for (0..32) |i| {
+        plaintext[i] = @truncate(i *% 7 +% 13);
+        key[i] = @truncate(i *% 11 +% 3);
+    }
+
+    const ciphertext = Areion256.encrypt(plaintext, key);
+    try testing.expect(!std.mem.eql(u8, &ciphertext, &plaintext));
+    const decrypted = Areion256.decrypt(ciphertext, key);
+    try testing.expectEqualSlices(u8, &plaintext, &decrypted);
+}
+
+test "areion512 even-mansour wrong key fails" {
+    var plaintext: [64]u8 = undefined;
+    var key: [64]u8 = undefined;
+    for (0..64) |i| {
+        plaintext[i] = @truncate(i);
+        key[i] = @truncate(i +% 100);
+    }
+    const ciphertext = Areion512.encrypt(plaintext, key);
+    var wrong_key = key;
+    wrong_key[0] ^= 1;
+    const decrypted = Areion512.decrypt(ciphertext, wrong_key);
+    try testing.expect(!std.mem.eql(u8, &plaintext, &decrypted));
+}
+
+test "areion256 even-mansour wrong key fails" {
+    var plaintext: [32]u8 = undefined;
+    var key: [32]u8 = undefined;
+    for (0..32) |i| {
+        plaintext[i] = @truncate(i);
+        key[i] = @truncate(i +% 100);
+    }
+    const ciphertext = Areion256.encrypt(plaintext, key);
+    var wrong_key = key;
+    wrong_key[0] ^= 1;
+    const decrypted = Areion256.decrypt(ciphertext, wrong_key);
+    try testing.expect(!std.mem.eql(u8, &plaintext, &decrypted));
 }
 
 test "areion512Vec matches scalar implementation" {
