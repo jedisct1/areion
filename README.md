@@ -82,6 +82,7 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `inversePermute()`: Apply the inverse permutation
 - `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
 - `dm(message)`: Single-call Davies-Meyer compression of a 64-byte block
+- `prf(input, key)`: Fixed-length keyed PRF (32-byte key + 32-byte input → 32-byte output)
 
 ### Areion256
 
@@ -96,6 +97,7 @@ try areion.AreionOCH.decrypt(&decrypted, &recovered_nsec, &ciphertext, tag, asso
 - `inversePermute()`: Apply the inverse permutation
 - `setRate(bytes)` / `setCapacity(bytes)` / `getCapacity()`: Direct state manipulation
 - `dm(message)`: Single-call Davies-Meyer compression of a 32-byte block
+- `prf(input, key)`: Fixed-length keyed PRF (16-byte key + 16-byte input → 16-byte output)
 
 ### AreionOCH
 
@@ -165,6 +167,6 @@ This implementation is based on:
 - **Areion**: [Areion: Highly-Efficient Permutations and Its Applications](https://eprint.iacr.org/2023/794.pdf) (CHES 2023)
   - Authors: Clémence Bouvier, Pierre Briaud, Pyrros Chaidos, Léo Perrin, Robin Salen, Vesselin Velichkov, Danny Willems
 - **OCH**: OCH authenticated encryption mode (CCS 2025)
-- **OPP**: [Offset Public Permutation](https://eprint.iacr.org/2015/363.pdf) AEAD construction
+- **OPP**: [Improved Masking for Tweakable Blockciphers with Applications to Authenticated Encryption](https://eprint.iacr.org/2015/999.pdf) (EUROCRYPT 2016) -- defines the OPP AEAD construction
 
 Implementation uses corrected test vectors from the updated Areion paper.

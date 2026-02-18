@@ -534,6 +534,20 @@ pub const Areion512 = struct {
         return out;
     }
 
+    /// Fixed-length keyed PRF: 32-byte key + 32-byte input → 32-byte output.
+    ///
+    /// Uses an Even-Mansour style construction: places the input in the rate
+    /// and the key in the capacity, then permutes and squeezes the rate.
+    pub fn prf(input: [block_length]u8, key: [block_length]u8) [digest_length]u8 {
+        var d: Areion512 = undefined;
+        d.blocks[0] = AesBlock.fromBytes(input[0..16]);
+        d.blocks[1] = AesBlock.fromBytes(input[16..32]);
+        d.blocks[2] = AesBlock.fromBytes(key[0..16]);
+        d.blocks[3] = AesBlock.fromBytes(key[16..32]);
+        d.permute();
+        return d.squeeze();
+    }
+
     /// Computes a 32-byte hash of the input using Merkle-Damgård construction.
     ///
     /// The hash uses SHA-256's IV as the initial state and applies MD-compliant
@@ -748,6 +762,18 @@ pub const Areion256 = struct {
         var d = Areion256.fromBytes(message);
         d.compress();
         return d.toBytes();
+    }
+
+    /// Fixed-length keyed PRF: 16-byte key + 16-byte input → 16-byte output.
+    ///
+    /// Uses an Even-Mansour style construction: places the input in the rate
+    /// and the key in the capacity, then permutes and squeezes the rate.
+    pub fn prf(input: [block_length]u8, key: [block_length]u8) [digest_length]u8 {
+        var d: Areion256 = undefined;
+        d.blocks[0] = AesBlock.fromBytes(&input);
+        d.blocks[1] = AesBlock.fromBytes(&key);
+        d.permute();
+        return d.squeeze();
     }
 
     /// Computes a 16-byte hash of the input using Merkle-Damgård construction.
@@ -1860,4 +1886,60 @@ test "areion512-dm test vector #2 (sequential)" {
         0xd4, 0x51, 0x88, 0x8a, 0xde, 0x4c, 0x23, 0xf1,
     };
     try testing.expectEqualSlices(u8, &expected, &Areion512.dm(input));
+}
+
+test "areion512-prf determinism" {
+    const input = [_]u8{0x42} ** 32;
+    const key = [_]u8{0x13} ** 32;
+    const out1 = Areion512.prf(input, key);
+    const out2 = Areion512.prf(input, key);
+    try testing.expectEqualSlices(u8, &out1, &out2);
+}
+
+test "areion512-prf key sensitivity" {
+    const input = [_]u8{0x00} ** 32;
+    const key1 = [_]u8{0x00} ** 32;
+    var key2 = [_]u8{0x00} ** 32;
+    key2[0] = 0x01;
+    const out1 = Areion512.prf(input, key1);
+    const out2 = Areion512.prf(input, key2);
+    try testing.expect(!mem.eql(u8, &out1, &out2));
+}
+
+test "areion512-prf input sensitivity" {
+    const key = [_]u8{0x00} ** 32;
+    const input1 = [_]u8{0x00} ** 32;
+    var input2 = [_]u8{0x00} ** 32;
+    input2[0] = 0x01;
+    const out1 = Areion512.prf(input1, key);
+    const out2 = Areion512.prf(input2, key);
+    try testing.expect(!mem.eql(u8, &out1, &out2));
+}
+
+test "areion256-prf determinism" {
+    const input = [_]u8{0x42} ** 16;
+    const key = [_]u8{0x13} ** 16;
+    const out1 = Areion256.prf(input, key);
+    const out2 = Areion256.prf(input, key);
+    try testing.expectEqualSlices(u8, &out1, &out2);
+}
+
+test "areion256-prf key sensitivity" {
+    const input = [_]u8{0x00} ** 16;
+    const key1 = [_]u8{0x00} ** 16;
+    var key2 = [_]u8{0x00} ** 16;
+    key2[0] = 0x01;
+    const out1 = Areion256.prf(input, key1);
+    const out2 = Areion256.prf(input, key2);
+    try testing.expect(!mem.eql(u8, &out1, &out2));
+}
+
+test "areion256-prf input sensitivity" {
+    const key = [_]u8{0x00} ** 16;
+    const input1 = [_]u8{0x00} ** 16;
+    var input2 = [_]u8{0x00} ** 16;
+    input2[0] = 0x01;
+    const out1 = Areion256.prf(input1, key);
+    const out2 = Areion256.prf(input2, key);
+    try testing.expect(!mem.eql(u8, &out1, &out2));
 }
