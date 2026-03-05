@@ -19,6 +19,7 @@ const AesBlockVec = crypto.core.aes.BlockVec;
 
 pub const och = @import("och.zig");
 pub const AreionOCH = och.AreionOCH;
+pub const AreionOCH_P = och.AreionOCH_P;
 
 /// Vectorized Areion512 permutation for parallel processing of multiple states.
 ///
