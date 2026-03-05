@@ -213,11 +213,11 @@ pub fn OchGeneric(
             axu_key: [DoubleHash.key_length]u8,
         ) void {
             const n0 = makeN0(npub);
-            var n0_offset = oct_state.initOffset(n0);
+            const raw_n0_offset = oct_state.initOffset(n0);
+            var n0_offset = raw_n0_offset;
 
             var checksum: [kappa]u8 = @splat(0);
 
-            // First block: contains secret nonce (if any) + message start
             var p1: [block_length]u8 = @splat(0);
             var msg_idx: usize = 0;
             var ct_idx: usize = 0;
@@ -243,8 +243,10 @@ pub fn OchGeneric(
             OctTbc.emEncrypt(&n0_offset, &c1);
             i += 1;
 
-            const n = makeN(npub, nsec);
-            var n_offset = oct_state.initOffset(n);
+            var n_offset = if (nsec_length == 0)
+                raw_n0_offset
+            else
+                oct_state.initOffset(makeN(npub, nsec));
             xor256(&n_offset, &oct_state.l[ntz(1)]);
 
             while (msg_idx + block_length <= m.len) {
@@ -307,7 +309,8 @@ pub fn OchGeneric(
             axu_key: [DoubleHash.key_length]u8,
         ) AuthenticationError!void {
             const n0 = makeN0(npub);
-            var n0_offset = oct_state.initOffset(n0);
+            const raw_n0_offset = oct_state.initOffset(n0);
+            var n0_offset = raw_n0_offset;
 
             var checksum: [kappa]u8 = @splat(0);
 
@@ -338,8 +341,10 @@ pub fn OchGeneric(
                 msg_idx = block_length;
             }
 
-            const n = makeN(npub, nsec.*);
-            var n_offset = oct_state.initOffset(n);
+            var n_offset = if (nsec_length == 0)
+                raw_n0_offset
+            else
+                oct_state.initOffset(makeN(npub, nsec.*));
             xor256(&n_offset, &oct_state.l[ntz(1)]);
 
             while (ct_idx + block_length <= c.len) {
@@ -496,7 +501,6 @@ fn Oct(comptime Permutation: type) type {
         const State = struct {
             tbc_key: [32]u8,
             l_star: [32]u8,
-            l_dollar: [32]u8,
             l: [L_TABLE_SIZE][32]u8,
 
             fn initOffset(self: *const State, nonce: [32]u8) [32]u8 {
@@ -526,7 +530,6 @@ fn Oct(comptime Permutation: type) type {
             return .{
                 .tbc_key = tbc_key,
                 .l_star = l_star,
-                .l_dollar = l_dollar,
                 .l = l,
             };
         }
@@ -562,47 +565,30 @@ fn ntz(x: usize) usize {
 
 fn gf256Double(in: [32]u8) [32]u8 {
     // GF(2^256) doubling with polynomial x^256 + x^10 + x^5 + x^2 + 1
-    var be: [4]u64 = undefined;
-    be[0] = mem.readInt(u64, in[0..8], .big);
-    be[1] = mem.readInt(u64, in[8..16], .big);
-    be[2] = mem.readInt(u64, in[16..24], .big);
-    be[3] = mem.readInt(u64, in[24..32], .big);
-
-    const mask: u64 = 1061;
-    const tmp = be[0] >> 63;
-
-    var out: [4]u64 = undefined;
-    out[0] = (be[0] << 1) ^ (be[1] >> 63);
-    out[1] = (be[1] << 1) ^ (be[2] >> 63);
-    out[2] = (be[2] << 1) ^ (be[3] >> 63);
-    out[3] = (be[3] << 1) ^ (mask & (0 -% tmp));
-
+    const l = mem.readInt(u256, &in, .big);
+    const l2 = (l << 1) ^ (0x0425 & (0 -% (l >> 255)));
     var result: [32]u8 = undefined;
-    mem.writeInt(u64, result[0..8], out[0], .big);
-    mem.writeInt(u64, result[8..16], out[1], .big);
-    mem.writeInt(u64, result[16..24], out[2], .big);
-    mem.writeInt(u64, result[24..32], out[3], .big);
+    mem.writeInt(u256, &result, l2, .big);
     return result;
 }
 
 fn shiftLeft256(a: [32]u8, value: u6) [32]u8 {
     if (value == 0) return a;
 
-    // Little-endian u64 layout: carries propagate from u64[i+1] to u64[i]
-    var le: [4]u64 = undefined;
-    le[0] = mem.readInt(u64, a[0..8], .little);
-    le[1] = mem.readInt(u64, a[8..16], .little);
-    le[2] = mem.readInt(u64, a[16..24], .little);
-    le[3] = mem.readInt(u64, a[24..32], .little);
+    // Mixed-endian layout: 4 little-endian u64 words with word[0] as MSB.
+    // This matches native uint64_t[4] on little-endian platforms.
+    var w: [4]u64 = undefined;
+    w[0] = mem.readInt(u64, a[0..8], .little);
+    w[1] = mem.readInt(u64, a[8..16], .little);
+    w[2] = mem.readInt(u64, a[16..24], .little);
+    w[3] = mem.readInt(u64, a[24..32], .little);
 
-    const shift: u6 = value;
-    const inv_shift: u7 = @as(u7, 64) - @as(u7, shift);
-
+    const inv: u7 = @as(u7, 64) - @as(u7, value);
     var out: [4]u64 = undefined;
-    out[0] = (le[0] << shift) | (le[1] >> @intCast(inv_shift));
-    out[1] = (le[1] << shift) | (le[2] >> @intCast(inv_shift));
-    out[2] = (le[2] << shift) | (le[3] >> @intCast(inv_shift));
-    out[3] = le[3] << shift;
+    out[0] = (w[0] << value) | (w[1] >> @intCast(inv));
+    out[1] = (w[1] << value) | (w[2] >> @intCast(inv));
+    out[2] = (w[2] << value) | (w[3] >> @intCast(inv));
+    out[3] = w[3] << value;
 
     var result: [32]u8 = undefined;
     mem.writeInt(u64, result[0..8], out[0], .little);
@@ -621,9 +607,10 @@ fn Sponge(comptime Permutation: type) type {
             state.permute();
             state_bytes.* = state.toBytes();
             // Undo Areion512's post-round block rotation (rotate left by 16 bytes)
-            const tmp = state_bytes.*;
-            @memcpy(state_bytes[0..48], tmp[16..64]);
-            @memcpy(state_bytes[48..64], tmp[0..16]);
+            var tmp: [16]u8 = undefined;
+            @memcpy(&tmp, state_bytes[0..16]);
+            std.mem.copyForwards(u8, state_bytes[0..48], state_bytes[16..64]);
+            @memcpy(state_bytes[48..64], &tmp);
         }
 
         fn absorbBytes(state_bytes: *[64]u8, input: [rate]u8) void {
@@ -834,7 +821,7 @@ test "EM encrypt" {
     const key: [32]u8 = @splat(0x42);
     var block: [32]u8 = @splat(0);
     OctImpl.emEncrypt(&key, &block);
-    try testing.expectEqualSlices(u8, &hexToBytes32("c9e12740b5ab3907dfe72c7cb5188c276b25a51f4273781b7e9ec23f857584a1"), &block);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("c9e12740b5ab3907dfe72c7cb5188c276b25a51f4273781b7e9ec23f857584a1"), &block);
 }
 
 test "Oct - encrypt/decrypt roundtrip" {
@@ -854,12 +841,6 @@ test "Oct - encrypt/decrypt roundtrip" {
     try testing.expectEqualSlices(u8, &original, &block);
 }
 
-fn hexToBytes32(comptime hex_str: *const [64]u8) [32]u8 {
-    var out: [32]u8 = undefined;
-    _ = std.fmt.hexToBytes(&out, hex_str) catch unreachable;
-    return out;
-}
-
 test "GF256 double" {
     const zero: [32]u8 = @splat(0);
     try testing.expectEqualSlices(u8, &zero, &gf256Double(zero));
@@ -872,12 +853,12 @@ test "GF256 double" {
 
     var val: [32]u8 = undefined;
     for (0..32) |i| val[i] = @intCast(i + 1);
-    const expected = hexToBytes32("020406080a0c0e10121416181a1c1e20222426282a2c2e30323436383a3c3e40");
+    const expected = hexToBytesBuf("020406080a0c0e10121416181a1c1e20222426282a2c2e30323436383a3c3e40");
     try testing.expectEqualSlices(u8, &expected, &gf256Double(val));
 
     var msb: [32]u8 = @splat(0);
     msb[0] = 0x80;
-    const exp_msb = hexToBytes32("0000000000000000000000000000000000000000000000000000000000000425");
+    const exp_msb = hexToBytesBuf("0000000000000000000000000000000000000000000000000000000000000425");
     try testing.expectEqualSlices(u8, &exp_msb, &gf256Double(msb));
 }
 
@@ -899,10 +880,10 @@ test "Sponge PRF" {
     const key: [32]u8 = @splat(0x42);
 
     const tbc_key = SpongePrf.prf(32, key, &.{"\xf0"});
-    try testing.expectEqualSlices(u8, &hexToBytes32("ae7c64e0133eb4db8e2ce083b7b8f0fc2b034b97d9033e6456403b0a817331f8"), &tbc_key);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("ae7c64e0133eb4db8e2ce083b7b8f0fc2b034b97d9033e6456403b0a817331f8"), &tbc_key);
 
     const axu_key = SpongePrf.prf(32, key, &.{"\xf1"});
-    try testing.expectEqualSlices(u8, &hexToBytes32("a315e8d68019005247f99af96d2807e36492650bbdb605b2f7b30da3ec3b45b2"), &axu_key);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("a315e8d68019005247f99af96d2807e36492650bbdb605b2f7b30da3ec3b45b2"), &axu_key);
 }
 
 test "DoubleUniversalHash - deterministic" {
@@ -930,13 +911,12 @@ test "OCT setup" {
     const tbc_key = SpongePrf.prf(32, key, &.{"\xf0"});
     var state = OctImpl.setup(tbc_key);
 
-    try testing.expectEqualSlices(u8, &hexToBytes32("e9aa12654bea8ff35c28f0c6603cd7a67a5618a8637d7586aa66c7fd7aa91809"), &state.l_star);
-    try testing.expectEqualSlices(u8, &hexToBytes32("d35424ca97d51fe6b851e18cc079af4cf4ac3150c6faeb0d54cd8ffaf5523437"), &state.l_dollar);
-    try testing.expectEqualSlices(u8, &hexToBytes32("a6a849952faa3fcd70a3c31980f35e99e95862a18df5d61aa99b1ff5eaa46c4b"), &state.l[0]);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("e9aa12654bea8ff35c28f0c6603cd7a67a5618a8637d7586aa66c7fd7aa91809"), &state.l_star);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("a6a849952faa3fcd70a3c31980f35e99e95862a18df5d61aa99b1ff5eaa46c4b"), &state.l[0]);
 
     const n0: [32]u8 = @splat(0x42);
     const n0_offset = state.initOffset(n0);
-    try testing.expectEqualSlices(u8, &hexToBytes32("742215b0185457ace6a63bae4848cfc9d6af780b92dd45008c40a45d8f4ef819"), &n0_offset);
+    try testing.expectEqualSlices(u8, &hexToBytesBuf("742215b0185457ace6a63bae4848cfc9d6af780b92dd45008c40a45d8f4ef819"), &n0_offset);
 }
 
 test "OCH-P KAT 64B" {
@@ -952,7 +932,7 @@ test "OCH-P KAT 64B" {
     AreionOCH_P.encrypt(&c, &tag, &m, &ad, npub, nsec, key);
 
     const expected_ct = hexToBytesBuf("efc691d694b2eb8291d6968808ba65db82447ff06d3c222eadc8dded9b0d95962c3ba26da40f596c7aee3ac37ffd523b99cf33ae17d47dd05ce32556cf82e167");
-    const expected_tag = hexToBytes32("f9d3fce1ec655bb4ef49b7407b3d046d65c97cf0ec8afd85d2989e809b8e9bc0");
+    const expected_tag = hexToBytesBuf("f9d3fce1ec655bb4ef49b7407b3d046d65c97cf0ec8afd85d2989e809b8e9bc0");
     try testing.expectEqualSlices(u8, &expected_ct, &c);
     try testing.expectEqualSlices(u8, &expected_tag, &tag);
 }
@@ -970,7 +950,7 @@ test "OCH-P KAT 5B tiny" {
     AreionOCH_P.encrypt(&c, &tag, &m, &ad, npub, nsec, key);
 
     const expected_ct = hexToBytesBuf("1a6f0d7954");
-    const expected_tag = hexToBytes32("cf3ef39e89d6b05dad34587055f6cb45001451e4f3dfc3d2f213ae59947d0fe8");
+    const expected_tag = hexToBytesBuf("cf3ef39e89d6b05dad34587055f6cb45001451e4f3dfc3d2f213ae59947d0fe8");
     try testing.expectEqualSlices(u8, &expected_ct, &c);
     try testing.expectEqualSlices(u8, &expected_tag, &tag);
 }
@@ -988,7 +968,7 @@ test "OCH-P KAT 100B partial" {
     AreionOCH_P.encrypt(&c, &tag, &m, &ad, npub, nsec, key);
 
     const expected_ct = hexToBytesBuf("efc691d694b2eb8291d6968808ba65db82447ff06d3c222eadc8dded9b0d95962c3ba26da40f596c7aee3ac37ffd523b99cf33ae17d47dd05ce32556cf82e167d1d3882f04c6a60258d66ae4042788cf6f1d0ef618207515ab8b574d019a6e824cde5701");
-    const expected_tag = hexToBytes32("d475545d297fafabb6de1158cea85c873927685978bc419e4e714be78fe74666");
+    const expected_tag = hexToBytesBuf("d475545d297fafabb6de1158cea85c873927685978bc419e4e714be78fe74666");
     try testing.expectEqualSlices(u8, &expected_ct, &c);
     try testing.expectEqualSlices(u8, &expected_tag, &tag);
 }
