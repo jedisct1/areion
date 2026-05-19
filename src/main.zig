@@ -117,7 +117,7 @@ pub fn Areion512Vec(comptime count: usize) type {
                 }
                 break :rcs rcs;
             };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
 
             var i: usize = 0;
             while (i < 12) : (i += 4) {
@@ -158,7 +158,7 @@ pub fn Areion512Vec(comptime count: usize) type {
                 }
                 break :rcs rcs;
             };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
 
             const invRound = struct {
                 fn f(x0: *BlockVec, x1: *BlockVec, x2: *BlockVec, x3: *BlockVec, rc_vec: BlockVec, zero_vec: BlockVec) void {
@@ -263,7 +263,7 @@ pub fn Areion256Vec(comptime count: usize) type {
                 }
                 break :rcs rcs;
             };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
 
             inline for (rcs, 0..) |rc_vec, r| {
                 if (r % 2 == 0) {
@@ -294,7 +294,7 @@ pub fn Areion256Vec(comptime count: usize) type {
                 }
                 break :rcs rcs;
             };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&([_]u8{0} ** 16)));
+            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
 
             var round_idx: usize = 0;
             while (round_idx < 10) : (round_idx += 2) {
@@ -454,7 +454,7 @@ pub const Areion512 = struct {
             break :rcs rcs;
         };
         const rc1 = comptime rc1: {
-            const b = [_]u8{0} ** 16;
+            const b = @as([16]u8, @splat(0));
             break :rc1 AesBlock.fromBytes(&b);
         };
 
@@ -498,7 +498,7 @@ pub const Areion512 = struct {
             break :rcs rcs;
         };
         const rc1 = comptime rc1: {
-            const b = [_]u8{0} ** 16;
+            const b = @as([16]u8, @splat(0));
             break :rc1 AesBlock.fromBytes(&b);
         };
 
@@ -592,7 +592,7 @@ pub const Areion512 = struct {
             hash_state = d.getCapacity();
         }
 
-        var padded = [_]u8{0} ** 32;
+        var padded = @as([32]u8, @splat(0));
         const left = b.len - end;
         @memcpy(padded[0..left], b[end..]);
         padded[left] = 0x80;
@@ -727,7 +727,7 @@ pub const Areion256 = struct {
             break :rcs rcs;
         };
         const rc1 = comptime rc1: {
-            const b = [_]u8{0} ** 16;
+            const b = @as([16]u8, @splat(0));
             break :rc1 AesBlock.fromBytes(&b);
         };
 
@@ -759,7 +759,7 @@ pub const Areion256 = struct {
             break :rcs rcs;
         };
         const rc1 = comptime rc1: {
-            const b = [_]u8{0} ** 16;
+            const b = @as([16]u8, @splat(0));
             break :rc1 AesBlock.fromBytes(&b);
         };
 
@@ -844,7 +844,7 @@ pub const Areion256 = struct {
             hash_state = d.getCapacity();
         }
 
-        var padded = [_]u8{0} ** 16;
+        var padded = @as([16]u8, @splat(0));
         const left = b.len - end;
         @memcpy(padded[0..left], b[end..]);
         padded[left] = 0x80;
@@ -972,8 +972,8 @@ pub const Areion256Opp = struct {
             .se = .{ .a = 0, .b = 0, .c = 0, .d = 0 },
             .la = la,
             .le = le,
-            .ad_buf = [_]u8{0} ** 32,
-            .buf = [_]u8{0} ** 32,
+            .ad_buf = @as([32]u8, @splat(0)),
+            .buf = @as([32]u8, @splat(0)),
             .ad_partial_len = 0,
             .partial_len = 0,
             .is_encrypt = is_encrypt,
@@ -1112,7 +1112,7 @@ pub const Areion256Opp = struct {
             if (self.is_encrypt) {
                 self.se = self.se.xorState(inb);
             } else {
-                var plain_buf = [_]u8{0} ** 32;
+                var plain_buf = @as([32]u8, @splat(0));
                 @memcpy(plain_buf[0..self.partial_len], result_bytes[0..self.partial_len]);
                 plain_buf[self.partial_len] = 0x01;
                 const plainb = OppState256.fromBytes(plain_buf);
@@ -1197,12 +1197,12 @@ pub const Areion512Opp = struct {
         const le = gamma512(la);
 
         return .{
-            .sa = .{ .s = [_]u64{0} ** 8 },
-            .se = .{ .s = [_]u64{0} ** 8 },
+            .sa = .{ .s = @as([8]u64, @splat(0)) },
+            .se = .{ .s = @as([8]u64, @splat(0)) },
             .la = la,
             .le = le,
-            .ad_buf = [_]u8{0} ** 64,
-            .buf = [_]u8{0} ** 64,
+            .ad_buf = @as([64]u8, @splat(0)),
+            .buf = @as([64]u8, @splat(0)),
             .ad_partial_len = 0,
             .partial_len = 0,
             .ad_finalized = false,
@@ -1313,7 +1313,7 @@ pub const Areion512Opp = struct {
             self.buf[self.partial_len] = 0x01;
 
             const inb = OppState512.fromBytes(self.buf);
-            const zero_state = OppState512{ .s = [_]u64{0} ** 8 };
+            const zero_state = OppState512{ .s = @as([8]u64, @splat(0)) };
             const block = oppMem512(zero_state, self.le);
             const outb = block.xorState(inb);
 
@@ -1471,7 +1471,7 @@ test {
 }
 
 test "areion512 permutation test vectors" {
-    var state = Areion512.fromBytes([_]u8{0} ** 64);
+    var state = Areion512.fromBytes(@as([64]u8, @splat(0)));
     state.permute();
     const result = state.toBytes();
 
@@ -1499,7 +1499,7 @@ test "areion512 basic functionality" {
 }
 
 test "areion256 permutation test vectors" {
-    var state = Areion256.fromBytes([_]u8{0} ** 32);
+    var state = Areion256.fromBytes(@as([32]u8, @splat(0)));
     state.permute();
     const result = state.toBytes();
 
@@ -1559,12 +1559,12 @@ test "areion256 additional test vectors" {
 }
 
 test "areion state management" {
-    const original_bytes_512 = [_]u8{0x12} ** 64;
+    const original_bytes_512 = @as([64]u8, @splat(0x12));
     const state512 = Areion512.fromBytes(original_bytes_512);
     const result_bytes_512 = state512.toBytes();
     try testing.expectEqualSlices(u8, &original_bytes_512, &result_bytes_512);
 
-    const original_bytes_256 = [_]u8{0x34} ** 32;
+    const original_bytes_256 = @as([32]u8, @splat(0x34));
     const state256 = Areion256.fromBytes(original_bytes_256);
     const result_bytes_256 = state256.toBytes();
     try testing.expectEqualSlices(u8, &original_bytes_256, &result_bytes_256);
@@ -1934,7 +1934,7 @@ test "areion256Vec with 4 parallel states" {
 }
 
 test "areion256-dm test vector #1 (zeros)" {
-    const input = [_]u8{0} ** 32;
+    const input = @as([32]u8, @splat(0));
     const expected = [_]u8{
         0x28, 0x12, 0xa7, 0x24, 0x65, 0xb2, 0x6e, 0x9f,
         0xca, 0x75, 0x83, 0xf6, 0xe4, 0x12, 0x3a, 0xa1,
@@ -1961,7 +1961,7 @@ test "areion256-dm test vector #2 (sequential)" {
 }
 
 test "areion512-dm test vector #1 (zeros)" {
-    const input = [_]u8{0} ** 64;
+    const input = @as([64]u8, @splat(0));
     const expected = [_]u8{
         0x59, 0x36, 0x71, 0x22, 0xcb, 0x3c, 0x96, 0xa9,
         0x3f, 0xe6, 0xdc, 0x85, 0x77, 0x91, 0x02, 0xe7,
