@@ -17,6 +17,19 @@ const AuthenticationError = crypto.errors.AuthenticationError;
 const AesBlock = crypto.core.aes.Block;
 const AesBlockVec = crypto.core.aes.BlockVec;
 
+const rc_bytes = blk: {
+    const ints = [15]u128{
+        0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
+    };
+    var bytes: [ints.len][16]u8 = undefined;
+    for (&bytes, ints) |*b, v| {
+        mem.writeInt(u128, b, v, .little);
+    }
+    break :blk bytes;
+};
+
+const zero_block_bytes: [16]u8 = @splat(0);
+
 pub const och = @import("och.zig");
 pub const AreionOCH = och.AreionOCH;
 pub const AreionOCH_P = och.AreionOCH_P;
@@ -105,19 +118,11 @@ pub fn Areion512Vec(comptime count: usize) type {
 
         /// Applies the 15-round Areion512 permutation to all parallel states.
         pub fn permute(state: *State) void {
-            const rcs = comptime rcs: {
-                const ints = [15]u128{
-                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
-                };
-                var rcs: [ints.len]BlockVec = undefined;
-                for (&rcs, ints) |*rc, v| {
-                    var b: [16]u8 = undefined;
-                    mem.writeInt(u128, &b, v, .little);
-                    rc.* = broadcast(AesBlock.fromBytes(&b));
-                }
-                break :rcs rcs;
-            };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
+            var rcs: [rc_bytes.len]BlockVec = undefined;
+            for (&rcs, rc_bytes) |*rc, b| {
+                rc.* = broadcast(AesBlock.fromBytes(&b));
+            }
+            const rc1_vec = broadcast(AesBlock.fromBytes(&zero_block_bytes));
 
             var i: usize = 0;
             while (i < 12) : (i += 4) {
@@ -146,19 +151,11 @@ pub fn Areion512Vec(comptime count: usize) type {
             state.blocks[2] = state.blocks[3];
             state.blocks[3] = temp;
 
-            const rcs = comptime rcs: {
-                const ints = [15]u128{
-                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
-                };
-                var rcs: [ints.len]BlockVec = undefined;
-                for (&rcs, ints) |*rc, v| {
-                    var b: [16]u8 = undefined;
-                    mem.writeInt(u128, &b, v, .little);
-                    rc.* = broadcast(AesBlock.fromBytes(&b));
-                }
-                break :rcs rcs;
-            };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
+            var rcs: [rc_bytes.len]BlockVec = undefined;
+            for (&rcs, rc_bytes) |*rc, b| {
+                rc.* = broadcast(AesBlock.fromBytes(&b));
+            }
+            const rc1_vec = broadcast(AesBlock.fromBytes(&zero_block_bytes));
 
             const invRound = struct {
                 fn f(x0: *BlockVec, x1: *BlockVec, x2: *BlockVec, x3: *BlockVec, rc_vec: BlockVec, zero_vec: BlockVec) void {
@@ -251,19 +248,11 @@ pub fn Areion256Vec(comptime count: usize) type {
 
         /// Applies the 10-round Areion256 permutation to all parallel states.
         pub fn permute(state: *State) void {
-            const rcs = comptime rcs: {
-                const ints = [10]u128{
-                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
-                };
-                var rcs: [ints.len]BlockVec = undefined;
-                for (&rcs, ints) |*rc, v| {
-                    var b: [16]u8 = undefined;
-                    mem.writeInt(u128, &b, v, .little);
-                    rc.* = broadcast(AesBlock.fromBytes(&b));
-                }
-                break :rcs rcs;
-            };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
+            var rcs: [10]BlockVec = undefined;
+            for (&rcs, rc_bytes[0..10]) |*rc, b| {
+                rc.* = broadcast(AesBlock.fromBytes(&b));
+            }
+            const rc1_vec = broadcast(AesBlock.fromBytes(&zero_block_bytes));
 
             inline for (rcs, 0..) |rc_vec, r| {
                 if (r % 2 == 0) {
@@ -282,19 +271,11 @@ pub fn Areion256Vec(comptime count: usize) type {
 
         /// Applies the inverse of the Areion256 permutation.
         pub fn inversePermute(state: *State) void {
-            const rcs = comptime rcs: {
-                const ints = [10]u128{
-                    0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
-                };
-                var rcs: [ints.len]BlockVec = undefined;
-                for (&rcs, ints) |*rc, v| {
-                    var b: [16]u8 = undefined;
-                    mem.writeInt(u128, &b, v, .little);
-                    rc.* = broadcast(AesBlock.fromBytes(&b));
-                }
-                break :rcs rcs;
-            };
-            const rc1_vec = comptime broadcast(AesBlock.fromBytes(&(@as([16]u8, @splat(0)))));
+            var rcs: [10]BlockVec = undefined;
+            for (&rcs, rc_bytes[0..10]) |*rc, b| {
+                rc.* = broadcast(AesBlock.fromBytes(&b));
+            }
+            const rc1_vec = broadcast(AesBlock.fromBytes(&zero_block_bytes));
 
             var round_idx: usize = 0;
             while (round_idx < 10) : (round_idx += 2) {
@@ -330,16 +311,19 @@ pub const Areion512 = struct {
     /// Hash options (currently unused, for API compatibility).
     pub const Options = struct {};
 
-    blocks: [4]AesBlock = blocks: {
-        const ints = [_]u128{ 0x0, 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a, 0x510e527f9b05688c1f83d9ab5be0cd19 };
-        var blocks: [4]AesBlock = undefined;
-        for (&blocks, ints) |*rc, v| {
-            var b: [16]u8 = undefined;
-            mem.writeInt(u128, &b, v, .little);
-            rc.* = AesBlock.fromBytes(&b);
-        }
-        break :blocks blocks;
-    },
+    blocks: [4]AesBlock,
+
+    /// Returns the initial hash state: an all-zero rate with the SHA-256
+    /// initialization constants in the capacity blocks.
+    pub fn init() Areion512 {
+        const bytes = comptime bytes: {
+            var bytes: [64]u8 = @splat(0);
+            mem.writeInt(u128, bytes[32..48], 0x6a09e667bb67ae853c6ef372a54ff53a, .little);
+            mem.writeInt(u128, bytes[48..64], 0x510e527f9b05688c1f83d9ab5be0cd19, .little);
+            break :bytes bytes;
+        };
+        return fromBytes(bytes);
+    }
 
     /// Creates a state from a 64-byte array.
     pub fn fromBytes(bytes: [64]u8) Areion512 {
@@ -441,22 +425,11 @@ pub const Areion512 = struct {
 
     /// Applies the 15-round Areion512 permutation in-place.
     pub fn permute(d: *Areion512) void {
-        const rcs = comptime rcs: {
-            const ints = [15]u128{
-                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
-            };
-            var rcs: [ints.len]AesBlock = undefined;
-            for (&rcs, ints) |*rc, v| {
-                var b: [16]u8 = undefined;
-                mem.writeInt(u128, &b, v, .little);
-                rc.* = AesBlock.fromBytes(&b);
-            }
-            break :rcs rcs;
-        };
-        const rc1 = comptime rc1: {
-            const b = @as([16]u8, @splat(0));
-            break :rc1 AesBlock.fromBytes(&b);
-        };
+        var rcs: [rc_bytes.len]AesBlock = undefined;
+        for (&rcs, rc_bytes) |*rc, b| {
+            rc.* = AesBlock.fromBytes(&b);
+        }
+        const rc1 = AesBlock.fromBytes(&zero_block_bytes);
 
         var i: usize = 0;
         while (i < 12) : (i += 4) {
@@ -485,22 +458,11 @@ pub const Areion512 = struct {
         d.blocks[2] = d.blocks[3];
         d.blocks[3] = temp;
 
-        const rcs = comptime rcs: {
-            const ints = [15]u128{
-                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5, 0x9c30d5392af26013c5d1b023286085f0, 0xca417918b8db38ef8e79dcb0603a180e, 0x6c9e0e8bb01e8a3ed71577c1bd314b27, 0x78af2fda55605c60e65525f3aa55ab94, 0x5748986263e8144055ca396a2aab10b6,
-            };
-            var rcs: [ints.len]AesBlock = undefined;
-            for (&rcs, ints) |*rc, v| {
-                var b: [16]u8 = undefined;
-                mem.writeInt(u128, &b, v, .little);
-                rc.* = AesBlock.fromBytes(&b);
-            }
-            break :rcs rcs;
-        };
-        const rc1 = comptime rc1: {
-            const b = @as([16]u8, @splat(0));
-            break :rc1 AesBlock.fromBytes(&b);
-        };
+        var rcs: [rc_bytes.len]AesBlock = undefined;
+        for (&rcs, rc_bytes) |*rc, b| {
+            rc.* = AesBlock.fromBytes(&b);
+        }
+        const rc1 = AesBlock.fromBytes(&zero_block_bytes);
 
         const invRound = struct {
             fn f(x0: *AesBlock, x1: *AesBlock, x2: *AesBlock, x3: *AesBlock, rc: AesBlock, zero: AesBlock) void {
@@ -585,7 +547,7 @@ pub const Areion512 = struct {
         const end = b.len - b.len % 32;
         var i: usize = 0;
         while (i < end) : (i += 32) {
-            var d = Areion512{};
+            var d = Areion512.init();
             d.setRate(b[i..][0..32].*);
             d.setCapacity(hash_state);
             d.compress();
@@ -598,7 +560,7 @@ pub const Areion512 = struct {
         padded[left] = 0x80;
         const bits: u32 = @intCast(b.len * 8);
 
-        var final_state = Areion512{};
+        var final_state = Areion512.init();
         if (left < 32 - 4) {
             mem.writeInt(u32, padded[32 - 4 ..][0..4], bits, .big);
             final_state.setRate(padded);
@@ -612,7 +574,7 @@ pub const Areion512 = struct {
 
             @memset(&padded, 0);
             mem.writeInt(u32, padded[32 - 4 ..][0..4], bits, .big);
-            final_state = Areion512{};
+            final_state = Areion512.init();
             final_state.setRate(padded);
             final_state.setCapacity(hash_state);
             final_state.compress();
@@ -635,16 +597,18 @@ pub const Areion256 = struct {
     /// Hash options (currently unused, for API compatibility).
     pub const Options = struct {};
 
-    blocks: [2]AesBlock = blocks: {
-        const ints = [_]u128{ 0x0, 0x6a09e667bb67ae853c6ef372a54ff53a };
-        var blocks: [2]AesBlock = undefined;
-        for (&blocks, ints) |*rc, v| {
-            var b: [16]u8 = undefined;
-            mem.writeInt(u128, &b, v, .little);
-            rc.* = AesBlock.fromBytes(&b);
-        }
-        break :blocks blocks;
-    },
+    blocks: [2]AesBlock,
+
+    /// Returns the initial hash state: an all-zero rate with the SHA-256
+    /// initialization constant in the capacity block.
+    pub fn init() Areion256 {
+        const bytes = comptime bytes: {
+            var bytes: [32]u8 = @splat(0);
+            mem.writeInt(u128, bytes[16..32], 0x6a09e667bb67ae853c6ef372a54ff53a, .little);
+            break :bytes bytes;
+        };
+        return fromBytes(bytes);
+    }
 
     /// Creates a state from a 32-byte array.
     pub fn fromBytes(bytes: [32]u8) Areion256 {
@@ -714,22 +678,11 @@ pub const Areion256 = struct {
 
     /// Applies the 10-round Areion256 permutation in-place.
     pub fn permute(d: *Areion256) void {
-        const rcs = comptime rcs: {
-            const ints = [10]u128{
-                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
-            };
-            var rcs: [ints.len]AesBlock = undefined;
-            for (&rcs, ints) |*rc, v| {
-                var b: [16]u8 = undefined;
-                mem.writeInt(u128, &b, v, .little);
-                rc.* = AesBlock.fromBytes(&b);
-            }
-            break :rcs rcs;
-        };
-        const rc1 = comptime rc1: {
-            const b = @as([16]u8, @splat(0));
-            break :rc1 AesBlock.fromBytes(&b);
-        };
+        var rcs: [10]AesBlock = undefined;
+        for (&rcs, rc_bytes[0..10]) |*rc, b| {
+            rc.* = AesBlock.fromBytes(&b);
+        }
+        const rc1 = AesBlock.fromBytes(&zero_block_bytes);
 
         inline for (rcs, 0..) |rc, r| {
             if (r % 2 == 0) {
@@ -746,22 +699,11 @@ pub const Areion256 = struct {
 
     /// Applies the inverse of the Areion256 permutation.
     pub fn inversePermute(d: *Areion256) void {
-        const rcs = comptime rcs: {
-            const ints = [10]u128{
-                0x243f6a8885a308d313198a2e03707344, 0xa4093822299f31d0082efa98ec4e6c89, 0x452821e638d01377be5466cf34e90c6c, 0xc0ac29b7c97c50dd3f84d5b5b5470917, 0x9216d5d98979fb1bd1310ba698dfb5ac, 0x2ffd72dbd01adfb7b8e1afed6a267e96, 0xba7c9045f12c7f9924a19947b3916cf7, 0x801f2e2858efc16636920d871574e690, 0xa458fea3f4933d7e0d95748f728eb658, 0x718bcd5882154aee7b54a41dc25a59b5,
-            };
-            var rcs: [ints.len]AesBlock = undefined;
-            for (&rcs, ints) |*rc, v| {
-                var b: [16]u8 = undefined;
-                mem.writeInt(u128, &b, v, .little);
-                rc.* = AesBlock.fromBytes(&b);
-            }
-            break :rcs rcs;
-        };
-        const rc1 = comptime rc1: {
-            const b = @as([16]u8, @splat(0));
-            break :rc1 AesBlock.fromBytes(&b);
-        };
+        var rcs: [10]AesBlock = undefined;
+        for (&rcs, rc_bytes[0..10]) |*rc, b| {
+            rc.* = AesBlock.fromBytes(&b);
+        }
+        const rc1 = AesBlock.fromBytes(&zero_block_bytes);
 
         var i: usize = 0;
         while (i < 10) : (i += 2) {
@@ -837,7 +779,7 @@ pub const Areion256 = struct {
         const end = b.len - b.len % 16;
         var i: usize = 0;
         while (i < end) : (i += 16) {
-            var d = Areion256{};
+            var d = Areion256.init();
             d.setRate(b[i..][0..16].*);
             d.setCapacity(hash_state);
             d.compress();
@@ -850,7 +792,7 @@ pub const Areion256 = struct {
         padded[left] = 0x80;
         const bits: u32 = @intCast(b.len * 8);
 
-        var final_state = Areion256{};
+        var final_state = Areion256.init();
         if (left < 16 - 4) {
             mem.writeInt(u32, padded[16 - 4 ..][0..4], bits, .big);
             final_state.setRate(padded);
@@ -864,7 +806,7 @@ pub const Areion256 = struct {
 
             @memset(&padded, 0);
             mem.writeInt(u32, padded[16 - 4 ..][0..4], bits, .big);
-            final_state = Areion256{};
+            final_state = Areion256.init();
             final_state.setRate(padded);
             final_state.setCapacity(hash_state);
             final_state.compress();
